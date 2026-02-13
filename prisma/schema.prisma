@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  plan          String    @default("free") // "free" | "pro"
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sentReactions     Reaction[] @relation("Sender")
+  receivedReactions Reaction[] @relation("Recipient")
+  projects          Project[]
+  accounts          Account[]
+  sessions          Session[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Reaction {
+  id              String   @id @default(cuid())
+  videoUrl        String   // YouTube URL
+  videoTitle       String?
+  senderEmail     String
+  recipientEmail  String
+  senderId        String?
+  recipientId     String?
+  introMessage    String?  // Custom message shown before recording
+  status          String   @default("pending") // pending | opened | recording | completed | expired
+  boothToken      String   @unique @default(cuid()) // unique link token
+  recordingPath   String?  // path to recorded video
+  composedPath    String?  // path to final composed video
+  thumbnailPath   String?  // thumbnail for dashboard
+  watermarked     Boolean  @default(true)
+  maxVideoLength  Int      @default(300) // seconds, 5 min default for free
+  expiresAt       DateTime // link expiration
+  openedAt        DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sender    User? @relation("Sender", fields: [senderId], references: [id])
+  recipient User? @relation("Recipient", fields: [recipientId], references: [id])
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+}
+
+model Project {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  userId          String
+  brandColor      String?  @default("#6366f1")
+  brandLogo       String?
+  customIntro     String?
+  layout          String   @default("side-by-side") // "side-by-side" | "pip" | "reaction-only"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reactions Reaction[]
+}
