@@ -23,7 +23,7 @@ export default async function WatchPage({ params }: WatchPageProps) {
     where: { id: params.id },
   });
 
-  if (!reaction || !reaction.recordingPath) {
+  if (!reaction || !reaction.recordingUrl) {
     notFound();
   }
 
@@ -41,16 +41,16 @@ export default async function WatchPage({ params }: WatchPageProps) {
 
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-8">
         <video
-          src={reaction.recordingPath}
+          src={reaction.recordingUrl}
           controls
           className="w-full aspect-video bg-black"
-          poster={reaction.thumbnailPath || undefined}
+          poster={reaction.thumbnailUrl || undefined}
         />
       </div>
 
       <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
         <a
-          href={reaction.recordingPath}
+          href={reaction.recordingUrl}
           download
           className="bg-indigo-500 text-white px-6 py-3 rounded-xl font-medium hover:bg-indigo-600 transition-colors"
         >

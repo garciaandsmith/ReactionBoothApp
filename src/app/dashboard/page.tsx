@@ -13,7 +13,7 @@ interface Reaction {
   status: string;
   createdAt: string;
   completedAt: string | null;
-  recordingPath: string | null;
+  recordingUrl: string | null;
   watermarked: boolean;
 }
 
@@ -151,7 +151,7 @@ export default function DashboardPage() {
                   </span>
                 </div>
               </div>
-              {reaction.status === "completed" && reaction.recordingPath && (
+              {reaction.status === "completed" && reaction.recordingUrl && (
                 <Link
                   href={`/watch/${reaction.id}`}
                   className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors whitespace-nowrap"
