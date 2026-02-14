@@ -10,7 +10,10 @@ datasource db {
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
+  emailVerified DateTime?
   name          String?
+  image         String?
+  passwordHash  String?
   plan          String    @default("free") // "free" | "pro"
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -69,7 +72,7 @@ model Reaction {
   introMessage    String?  // Custom message shown before recording
   status          String   @default("pending") // pending | opened | recording | completed | expired
   boothToken      String   @unique @default(cuid()) // unique link token
-  recordingUrl    String?  // URL to recorded video (Vercel Blob or external)
+  recordingUrl    String?  // URL to recorded video
   composedUrl     String?  // URL to final composed video
   thumbnailUrl    String?  // thumbnail URL for dashboard
   watermarked     Boolean  @default(true)

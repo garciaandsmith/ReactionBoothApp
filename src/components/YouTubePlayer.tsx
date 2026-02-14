@@ -53,6 +53,12 @@ export default function YouTubePlayer({
     return () => window.removeEventListener("message", handleMessage);
   }, [handleMessage]);
 
+  // Fallback: if YouTube postMessage never fires, reveal the player after 3s
+  useEffect(() => {
+    const timeout = setTimeout(() => setIsReady(true), 3000);
+    return () => clearTimeout(timeout);
+  }, []);
+
   if (!videoId) {
     return (
       <div className="aspect-video bg-gray-100 rounded-2xl flex items-center justify-center">
