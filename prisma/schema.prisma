@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 model User {
@@ -61,7 +62,7 @@ model VerificationToken {
 model Reaction {
   id              String   @id @default(cuid())
   videoUrl        String   // YouTube URL
-  videoTitle       String?
+  videoTitle      String?
   senderEmail     String
   recipientEmail  String
   senderId        String?
@@ -69,9 +70,9 @@ model Reaction {
   introMessage    String?  // Custom message shown before recording
   status          String   @default("pending") // pending | opened | recording | completed | expired
   boothToken      String   @unique @default(cuid()) // unique link token
-  recordingPath   String?  // path to recorded video
-  composedPath    String?  // path to final composed video
-  thumbnailPath   String?  // thumbnail for dashboard
+  recordingUrl    String?  // URL to recorded video (Vercel Blob or external)
+  composedUrl     String?  // URL to final composed video
+  thumbnailUrl    String?  // thumbnail URL for dashboard
   watermarked     Boolean  @default(true)
   maxVideoLength  Int      @default(300) // seconds, 5 min default for free
   expiresAt       DateTime // link expiration

@@ -1,12 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  async rewrites() {
-    return [
+  images: {
+    remotePatterns: [
       {
-        source: "/uploads/:path*",
-        destination: "/api/uploads/:path*",
+        protocol: "https",
+        hostname: "img.youtube.com",
       },
-    ];
+    ],
   },
 };
 

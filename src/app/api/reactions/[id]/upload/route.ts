@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendReactionCompleteEmail } from "@/lib/email";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
+import { put } from "@vercel/blob";
 
 export async function POST(
   request: NextRequest,
@@ -30,25 +29,18 @@ export async function POST(
       );
     }
 
-    const uploadDir = path.join(
-      process.cwd(),
-      process.env.UPLOAD_DIR || "./uploads",
-      reaction.id
-    );
-    await mkdir(uploadDir, { recursive: true });
+    const filename = `reactions/${reaction.id}/reaction-${Date.now()}.webm`;
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const filename = `reaction-${Date.now()}.webm`;
-    const filepath = path.join(uploadDir, filename);
-    await writeFile(filepath, buffer);
-
-    const relativePath = `/uploads/${reaction.id}/${filename}`;
+    const blob = await put(filename, file, {
+      access: "public",
+      contentType: file.type || "video/webm",
+    });
 
     const updated = await prisma.reaction.update({
       where: { id: reaction.id },
       data: {
-        recordingPath: relativePath,
-        composedPath: relativePath, // In production, compose side-by-side here
+        recordingUrl: blob.url,
+        composedUrl: blob.url,
         status: "completed",
         completedAt: new Date(),
       },
@@ -67,7 +59,7 @@ export async function POST(
 
     return NextResponse.json({
       id: updated.id,
-      recordingPath: relativePath,
+      recordingUrl: blob.url,
       watchUrl,
     });
   } catch (error) {

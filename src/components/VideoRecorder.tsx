@@ -71,7 +71,12 @@ export default function VideoRecorder({
     timerRef.current = setInterval(() => {
       setElapsed((prev) => {
         if (prev + 1 >= maxDuration) {
-          stopRecording();
+          mediaRecorderRef.current?.stop();
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+          setIsRecording(false);
           return prev + 1;
         }
         return prev + 1;
