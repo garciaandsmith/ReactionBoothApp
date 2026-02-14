@@ -1,5 +1,13 @@
 import nodemailer from "nodemailer";
 
+function isSmtpConfigured(): boolean {
+  return !!(
+    process.env.SMTP_HOST &&
+    process.env.SMTP_HOST !== "smtp.example.com" &&
+    process.env.SMTP_USER
+  );
+}
+
 function getTransporter() {
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
@@ -13,6 +21,14 @@ function getTransporter() {
 }
 
 export async function sendMagicLinkEmail(email: string, url: string) {
+  if (!isSmtpConfigured()) {
+    console.log("\n--- Magic Link Email (SMTP not configured) ---");
+    console.log(`To: ${email}`);
+    console.log(`Sign-in link: ${url}`);
+    console.log("---\n");
+    return;
+  }
+
   const transporter = getTransporter();
   await transporter.sendMail({
     from: process.env.EMAIL_FROM,
@@ -40,6 +56,17 @@ export async function sendBoothInviteEmail(
   videoTitle: string | null,
   introMessage: string | null
 ) {
+  if (!isSmtpConfigured()) {
+    console.log("\n--- Booth Invite Email (SMTP not configured) ---");
+    console.log(`To: ${recipientEmail}`);
+    console.log(`From: ${senderEmail}`);
+    console.log(`Video: ${videoTitle || "N/A"}`);
+    console.log(`Booth link: ${boothUrl}`);
+    if (introMessage) console.log(`Message: ${introMessage}`);
+    console.log("---\n");
+    return;
+  }
+
   const transporter = getTransporter();
   await transporter.sendMail({
     from: process.env.EMAIL_FROM,
@@ -67,6 +94,15 @@ export async function sendReactionCompleteEmail(
   watchUrl: string,
   isSender: boolean
 ) {
+  if (!isSmtpConfigured()) {
+    console.log("\n--- Reaction Complete Email (SMTP not configured) ---");
+    console.log(`To: ${email}`);
+    console.log(`Watch link: ${watchUrl}`);
+    console.log(`Role: ${isSender ? "sender" : "recipient"}`);
+    console.log("---\n");
+    return;
+  }
+
   const transporter = getTransporter();
   await transporter.sendMail({
     from: process.env.EMAIL_FROM,

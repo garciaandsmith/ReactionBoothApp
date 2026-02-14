@@ -2,54 +2,69 @@
 
 import { signIn } from "next-auth/react";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function SignInPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const [password, setPassword] = useState("");
+  const [isRegister, setIsRegister] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await signIn("email", { email, redirect: false });
-    setSubmitted(true);
-  };
+    setError("");
+    setLoading(true);
 
-  if (submitted) {
-    return (
-      <div className="max-w-md mx-auto px-4 py-20 text-center">
-        <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg
-            width="28"
-            height="28"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#6366f1"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-            <polyline points="22,6 12,13 2,6" />
-          </svg>
-        </div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">
-          Check your email
-        </h1>
-        <p className="text-gray-500">
-          We sent a sign-in link to <strong>{email}</strong>. Click the link to
-          continue.
-        </p>
-      </div>
-    );
-  }
+    try {
+      if (isRegister) {
+        const res = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || "Failed to create account");
+          setLoading(false);
+          return;
+        }
+      }
+
+      const result = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      });
+
+      if (result?.error) {
+        setError(
+          isRegister
+            ? "Account created but sign-in failed. Try signing in."
+            : "Invalid email or password"
+        );
+      } else {
+        router.push("/dashboard");
+        router.refresh();
+      }
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="max-w-md mx-auto px-4 py-20">
       <div className="text-center mb-8">
         <h1 className="text-2xl font-bold text-gray-900 mb-2">
-          Sign in to ReactionBooth
+          {isRegister ? "Create an account" : "Sign in to ReactionBooth"}
         </h1>
         <p className="text-gray-500">
-          Enter your email and we&apos;ll send you a magic link.
+          {isRegister
+            ? "Create an account to track your reactions."
+            : "Sign in to access your dashboard and track reactions."}
         </p>
       </div>
       <form
@@ -73,12 +88,62 @@ export default function SignInPage() {
             className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all text-gray-900"
           />
         </div>
+        <div>
+          <label
+            htmlFor="password"
+            className="block text-sm font-medium text-gray-700 mb-2"
+          >
+            Password
+          </label>
+          <input
+            id="password"
+            type="password"
+            required
+            placeholder="••••••••"
+            minLength={6}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all text-gray-900"
+          />
+        </div>
+
+        {error && (
+          <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm">
+            {error}
+          </div>
+        )}
+
         <button
           type="submit"
-          className="w-full bg-indigo-500 text-white py-3 rounded-xl font-medium hover:bg-indigo-600 transition-colors"
+          disabled={loading}
+          className="w-full bg-indigo-500 text-white py-3 rounded-xl font-medium hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Send Magic Link
+          {loading ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              {isRegister ? "Creating account..." : "Signing in..."}
+            </span>
+          ) : isRegister ? (
+            "Create Account"
+          ) : (
+            "Sign In"
+          )}
         </button>
+
+        <div className="text-center pt-2">
+          <button
+            type="button"
+            onClick={() => {
+              setIsRegister(!isRegister);
+              setError("");
+            }}
+            className="text-sm text-indigo-500 hover:text-indigo-600"
+          >
+            {isRegister
+              ? "Already have an account? Sign in"
+              : "Don&apos;t have an account? Create one"}
+          </button>
+        </div>
       </form>
     </div>
   );
