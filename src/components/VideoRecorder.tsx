@@ -31,9 +31,6 @@ export default function VideoRecorder({
       });
       setStream(mediaStream);
       setPermissionGranted(true);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-      }
     } catch (err) {
       console.error("Permission error:", err);
       onError(
@@ -41,6 +38,13 @@ export default function VideoRecorder({
       );
     }
   }, [onError]);
+
+  // Connect stream to video element after it renders
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream, permissionGranted]);
 
   const startRecording = useCallback(() => {
     if (!stream) return;
