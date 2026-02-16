@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       description,
       brandColor,
       customIntro,
-      layout: layout || "side-by-side",
+      layout: layout || "pip-desktop",
       userId: user.id,
     },
   });

@@ -7,7 +7,8 @@ export const PLANS = {
     linkLifespanDays: 7,
     dashboard: false,
     customBranding: false,
-    layouts: ["side-by-side"],
+    layouts: ["pip-desktop"] as const,
+    downloadBurnsAfterUse: true,
   },
   pro: {
     name: "Pro",
@@ -17,16 +18,16 @@ export const PLANS = {
     linkLifespanDays: 30,
     dashboard: true,
     customBranding: true,
-    layouts: ["side-by-side", "pip", "reaction-only"],
+    layouts: ["pip-desktop", "stacked-mobile"] as const,
+    downloadBurnsAfterUse: false,
   },
 } as const;
 
 export type PlanType = keyof typeof PLANS;
 
 export const LAYOUTS = {
-  "side-by-side": "Side by Side",
-  pip: "Picture in Picture",
-  "reaction-only": "Reaction Only",
+  "pip-desktop": "Desktop (Picture in Picture)",
+  "stacked-mobile": "Mobile (Stacked)",
 } as const;
 
 export type LayoutType = keyof typeof LAYOUTS;
