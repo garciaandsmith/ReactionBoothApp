@@ -13,6 +13,14 @@ async function saveLocally(filename: string, file: File): Promise<string> {
   return `/api/uploads/${filename}`;
 }
 
+async function saveJsonLocally(filename: string, content: string): Promise<string> {
+  const parts = filename.split("/");
+  const dir = join(process.cwd(), "uploads", ...parts.slice(0, -1));
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(process.cwd(), "uploads", filename), content, "utf-8");
+  return `/api/uploads/${filename}`;
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -31,6 +39,7 @@ export async function POST(
 
     const formData = await request.formData();
     const file = formData.get("recording") as File;
+    const eventsJson = formData.get("events") as string | null;
 
     if (!file) {
       return NextResponse.json(
@@ -39,27 +48,43 @@ export async function POST(
       );
     }
 
-    const filename = `reactions/${reaction.id}/reaction-${Date.now()}.webm`;
+    const timestamp = Date.now();
+    const videoFilename = `reactions/${reaction.id}/reaction-${timestamp}.webm`;
+    const eventsFilename = `reactions/${reaction.id}/events-${timestamp}.json`;
 
     let recordingUrl: string;
+    let eventsUrl: string | null = null;
 
     if (process.env.BLOB_READ_WRITE_TOKEN) {
       // Use Vercel Blob for production
       const { put } = await import("@vercel/blob");
-      const blob = await put(filename, file, {
+      const blob = await put(videoFilename, file, {
         access: "public",
         contentType: file.type || "video/webm",
       });
       recordingUrl = blob.url;
+
+      if (eventsJson) {
+        const eventsBlob = await put(eventsFilename, eventsJson, {
+          access: "public",
+          contentType: "application/json",
+        });
+        eventsUrl = eventsBlob.url;
+      }
     } else {
       // Fall back to local filesystem
-      recordingUrl = await saveLocally(filename, file);
+      recordingUrl = await saveLocally(videoFilename, file);
+
+      if (eventsJson) {
+        eventsUrl = await saveJsonLocally(eventsFilename, eventsJson);
+      }
     }
 
     const updated = await prisma.reaction.update({
       where: { id: reaction.id },
       data: {
         recordingUrl,
+        eventsUrl,
         composedUrl: recordingUrl,
         status: "completed",
         completedAt: new Date(),
@@ -80,6 +105,7 @@ export async function POST(
     return NextResponse.json({
       id: updated.id,
       recordingUrl,
+      eventsUrl,
       watchUrl,
     });
   } catch (error) {

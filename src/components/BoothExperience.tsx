@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import VideoRecorder from "./VideoRecorder";
-import YouTubePlayer from "./YouTubePlayer";
+import DualRecorder from "./DualRecorder";
+import type { ReactionEventLog } from "@/lib/types";
 
 interface Reaction {
   id: string;
@@ -13,7 +13,7 @@ interface Reaction {
   watermarked: boolean;
 }
 
-type BoothStep = "welcome" | "setup" | "recording" | "uploading" | "done";
+type BoothStep = "welcome" | "recording" | "uploading" | "done";
 
 export default function BoothExperience({ reaction }: { reaction: Reaction }) {
   const [step, setStep] = useState<BoothStep>("welcome");
@@ -21,15 +21,15 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
   const [error, setError] = useState("");
 
   const handleRecordingComplete = useCallback(
-    async (blob: Blob) => {
+    async (blob: Blob, events: ReactionEventLog) => {
       setStep("uploading");
       setUploadProgress(0);
 
       try {
         const formData = new FormData();
         formData.append("recording", blob, "reaction.webm");
+        formData.append("events", JSON.stringify(events));
 
-        // Simulate progress while uploading
         const progressInterval = setInterval(() => {
           setUploadProgress((prev) => Math.min(prev + 10, 90));
         }, 500);
@@ -90,6 +90,20 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
             </p>
           </div>
         )}
+
+        {/* Headphones recommendation */}
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-left">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5">
+            <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+            <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+          </svg>
+          <p className="text-sm text-amber-700">
+            <strong>Headphones recommended!</strong> Wearing headphones prevents
+            the video audio from being picked up by your microphone, resulting
+            in a cleaner reaction recording.
+          </p>
+        </div>
+
         <div className="bg-gray-50 rounded-xl p-5 mb-8 text-left space-y-3">
           <h3 className="font-semibold text-gray-900 text-sm">
             Here&apos;s how it works:
@@ -108,8 +122,8 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
               2
             </span>
             <p className="text-sm text-gray-600">
-              Watch the video and press record when you&apos;re ready — be
-              yourself!
+              Press the <strong>Start Recording</strong> button — the video will
+              play and your webcam will record at the same time
             </p>
           </div>
           <div className="flex items-start gap-3">
@@ -121,44 +135,31 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
             </p>
           </div>
         </div>
+
         <button
-          onClick={() => setStep("setup")}
+          onClick={() => setStep("recording")}
           className="bg-indigo-500 text-white px-8 py-3 rounded-xl font-medium hover:bg-indigo-600 transition-colors"
         >
           Let&apos;s Go!
         </button>
+
+        <p className="text-xs text-gray-400 mt-4">
+          For the best experience, use a desktop or laptop computer.
+        </p>
       </div>
     );
   }
 
-  if (step === "setup" || step === "recording") {
+  if (step === "recording") {
     return (
-      <div className="max-w-5xl mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div>
-            <h2 className="text-sm font-medium text-gray-500 mb-3">
-              Video to watch
-            </h2>
-            <YouTubePlayer videoUrl={reaction.videoUrl} />
-          </div>
-          <div>
-            <h2 className="text-sm font-medium text-gray-500 mb-3">
-              Your reaction
-            </h2>
-            <VideoRecorder
-              reactionId={reaction.id}
-              maxDuration={reaction.maxVideoLength}
-              onRecordingComplete={handleRecordingComplete}
-              onError={setError}
-            />
-          </div>
-        </div>
-
-        {reaction.watermarked && (
-          <p className="text-center text-xs text-gray-400 mt-4">
-            Free tier — reaction will include a ReactionBooth watermark
-          </p>
-        )}
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        <DualRecorder
+          videoUrl={reaction.videoUrl}
+          maxDuration={reaction.maxVideoLength}
+          watermarked={reaction.watermarked}
+          onRecordingComplete={handleRecordingComplete}
+          onError={setError}
+        />
 
         {error && (
           <div className="mt-4 bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm text-center">

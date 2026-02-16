@@ -72,9 +72,12 @@ model Reaction {
   introMessage    String?  // Custom message shown before recording
   status          String   @default("pending") // pending | opened | recording | completed | expired
   boothToken      String   @unique @default(cuid()) // unique link token
-  recordingUrl    String?  // URL to recorded video
+  recordingUrl    String?  // URL to webcam recording
   composedUrl     String?  // URL to final composed video
   thumbnailUrl    String?  // thumbnail URL for dashboard
+  eventsUrl       String?  // URL to stored YouTube events JSON
+  selectedLayout  String?  // "pip-desktop" | "stacked-mobile"
+  downloadCount   Int      @default(0)
   watermarked     Boolean  @default(true)
   maxVideoLength  Int      @default(300) // seconds, 5 min default for free
   expiresAt       DateTime // link expiration

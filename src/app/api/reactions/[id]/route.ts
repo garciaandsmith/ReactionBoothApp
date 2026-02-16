@@ -46,7 +46,7 @@ export async function PATCH(
 ) {
   try {
     const body = await request.json();
-    const { status } = body;
+    const { status, selectedLayout } = body;
 
     const reaction = await prisma.reaction.findUnique({
       where: { id: params.id },
@@ -59,9 +59,15 @@ export async function PATCH(
       );
     }
 
-    const updateData: Record<string, unknown> = { status };
-    if (status === "opened") updateData.openedAt = new Date();
-    if (status === "completed") updateData.completedAt = new Date();
+    const updateData: Record<string, unknown> = {};
+    if (status) {
+      updateData.status = status;
+      if (status === "opened") updateData.openedAt = new Date();
+      if (status === "completed") updateData.completedAt = new Date();
+    }
+    if (selectedLayout) {
+      updateData.selectedLayout = selectedLayout;
+    }
 
     const updated = await prisma.reaction.update({
       where: { id: params.id },

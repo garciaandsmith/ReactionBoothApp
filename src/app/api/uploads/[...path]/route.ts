@@ -17,6 +17,7 @@ export async function GET(
       jpg: "image/jpeg",
       jpeg: "image/jpeg",
       png: "image/png",
+      json: "application/json",
     };
 
     return new NextResponse(data, {
