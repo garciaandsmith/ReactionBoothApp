@@ -35,7 +35,6 @@ export default function DualRecorder({
   const recordingStartRef = useRef<number>(0);
   const pendingEventLogRef = useRef<ReactionEventLog | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const lastSeekTimeRef = useRef<number>(0);
 
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [permissionGranted, setPermissionGranted] = useState(false);
@@ -43,12 +42,17 @@ export default function DualRecorder({
   const [isRecording, setIsRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
-  // Request webcam + mic
+  // Request webcam + mic with audio processing disabled to prevent
+  // echo cancellation from ducking the mic when YouTube plays
   const requestPermissions = useCallback(async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true,
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
       });
       setStream(mediaStream);
       setPermissionGranted(true);
@@ -111,7 +115,7 @@ export default function DualRecorder({
         stopDualRecording();
       }
     },
-    [isRecording] // stopDualRecording added below via ref pattern
+    [isRecording]
   );
 
   // Start both recordings simultaneously
@@ -153,7 +157,7 @@ export default function DualRecorder({
     setIsRecording(true);
     setElapsed(0);
 
-    // Elapsed timer
+    // Elapsed timer — auto-stop at maxDuration
     timerRef.current = setInterval(() => {
       setElapsed((prev) => {
         if (prev + 1 >= maxDuration) {
@@ -224,49 +228,55 @@ export default function DualRecorder({
     );
   }
 
-  // Main recording UI
+  // Main recording UI — side by side layout
   return (
     <div className="space-y-4">
-      <div className="relative w-full">
-        {/* YouTube player — main area */}
-        <YouTubePlayer
-          ref={youtubeRef}
-          videoUrl={videoUrl}
-          controlledMode={true}
-          onStateChange={handleYouTubeStateChange}
-          onReady={() => setYoutubeReady(true)}
-        />
-
-        {/* Webcam PiP overlay — bottom right */}
-        <div className="absolute bottom-4 right-4 w-1/4 aspect-video rounded-xl overflow-hidden border-2 border-white/80 shadow-lg z-20">
-          <video
-            ref={webcamRef}
-            autoPlay
-            muted
-            playsInline
-            className="w-full h-full object-cover"
-            style={{ transform: "scaleX(-1)" }}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* YouTube player — full controls, user can interact */}
+        <div>
+          <h2 className="text-sm font-medium text-gray-500 mb-2">Video to watch</h2>
+          <YouTubePlayer
+            ref={youtubeRef}
+            videoUrl={videoUrl}
+            controlledMode={false}
+            onStateChange={handleYouTubeStateChange}
+            onReady={() => setYoutubeReady(true)}
           />
         </div>
 
-        {/* Recording timer overlay — top left */}
-        {isRecording && (
-          <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/60 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-sm z-20">
-            <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-            <span>{formatTime(elapsed)}</span>
-            <span className="text-gray-400">/ {formatTime(maxDuration)}</span>
-          </div>
-        )}
-
-        {/* Progress bar */}
-        {isRecording && (
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-700 rounded-b-2xl overflow-hidden z-20">
-            <div
-              className="h-full bg-red-500 transition-all duration-1000"
-              style={{ width: `${(elapsed / maxDuration) * 100}%` }}
+        {/* Webcam feed */}
+        <div>
+          <h2 className="text-sm font-medium text-gray-500 mb-2">Your reaction</h2>
+          <div className="relative aspect-video bg-gray-900 rounded-2xl overflow-hidden">
+            <video
+              ref={webcamRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full h-full object-cover"
+              style={{ transform: "scaleX(-1)" }}
             />
+
+            {/* Recording timer overlay */}
+            {isRecording && (
+              <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/60 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-sm">
+                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                <span>{formatTime(elapsed)}</span>
+                <span className="text-gray-400">/ {formatTime(maxDuration)}</span>
+              </div>
+            )}
+
+            {/* Progress bar */}
+            {isRecording && (
+              <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-700 overflow-hidden">
+                <div
+                  className="h-full bg-red-500 transition-all duration-1000"
+                  style={{ width: `${(elapsed / maxDuration) * 100}%` }}
+                />
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* Global record/stop button */}
