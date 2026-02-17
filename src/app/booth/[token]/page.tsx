@@ -77,8 +77,7 @@ export default async function BoothPage({ params }: BoothPageProps) {
           Already recorded
         </h1>
         <p className="text-gray-500">
-          This reaction has already been recorded. Both parties should have
-          received an email with the result.
+          This reaction has already been recorded and is ready to watch.
         </p>
       </div>
     );
@@ -97,7 +96,6 @@ export default async function BoothPage({ params }: BoothPageProps) {
       reaction={{
         id: reaction.id,
         videoUrl: reaction.videoUrl,
-        senderEmail: reaction.senderEmail,
         introMessage: reaction.introMessage,
         maxVideoLength: reaction.maxVideoLength,
         watermarked: reaction.watermarked,

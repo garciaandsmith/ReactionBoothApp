@@ -30,12 +30,6 @@ export default function Header() {
         </Link>
 
         <nav className="flex items-center gap-6">
-          <Link
-            href="/create"
-            className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            Create
-          </Link>
           {session ? (
             <>
               <Link

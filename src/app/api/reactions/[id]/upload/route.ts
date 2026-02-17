@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { sendReactionCompleteEmail } from "@/lib/email";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 
@@ -52,10 +51,9 @@ export async function POST(
     const videoFilename = `reactions/${reaction.id}/reaction-${timestamp}.webm`;
     const eventsFilename = `reactions/${reaction.id}/events-${timestamp}.json`;
 
-    let recordingUrl: string;
     let eventsUrl: string | null = null;
 
-    recordingUrl = await saveLocally(videoFilename, file);
+    const recordingUrl = await saveLocally(videoFilename, file);
 
     if (eventsJson) {
       eventsUrl = await saveJsonLocally(eventsFilename, eventsJson);
@@ -74,14 +72,6 @@ export async function POST(
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     const watchUrl = `${appUrl}/watch/${reaction.id}`;
-
-    // Send completion emails (non-blocking)
-    sendReactionCompleteEmail(reaction.senderEmail, watchUrl, true).catch(
-      (err) => console.error("Failed to send sender email:", err)
-    );
-    sendReactionCompleteEmail(reaction.recipientEmail, watchUrl, false).catch(
-      (err) => console.error("Failed to send recipient email:", err)
-    );
 
     return NextResponse.json({
       id: updated.id,

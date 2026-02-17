@@ -5,16 +5,24 @@ import { authOptions } from "@/lib/auth";
 import { extractYouTubeId, isValidYouTubeUrl } from "@/lib/youtube";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { PLANS } from "@/lib/constants";
-import { sendBoothInviteEmail } from "@/lib/email";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { videoUrl, senderEmail, recipientEmail, introMessage } = body;
+    const session = await getServerSession(authOptions);
 
-    if (!videoUrl || !senderEmail || !recipientEmail) {
+    if (!session?.user?.email) {
       return NextResponse.json(
-        { error: "Video URL, sender email, and recipient email are required" },
+        { error: "Authentication required" },
+        { status: 401 }
+      );
+    }
+
+    const body = await request.json();
+    const { videoUrl, introMessage } = body;
+
+    if (!videoUrl) {
+      return NextResponse.json(
+        { error: "Video URL is required" },
         { status: 400 }
       );
     }
@@ -26,18 +34,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const session = await getServerSession(authOptions);
-    let user = null;
-    let plan = "free";
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+    });
 
-    if (session?.user?.email) {
-      user = await prisma.user.findUnique({
-        where: { email: session.user.email },
-      });
-      if (user) plan = user.plan;
-    }
-
-    const rateLimitKey = user?.id || senderEmail;
+    const plan = user?.plan || "free";
+    const rateLimitKey = user?.id || session.user.email;
     const { allowed } = checkRateLimit(rateLimitKey, plan);
     if (!allowed) {
       return NextResponse.json(
@@ -54,12 +56,14 @@ export async function POST(request: NextRequest) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + planConfig.linkLifespanDays);
 
+    const senderEmail = session.user.email;
+
     const reaction = await prisma.reaction.create({
       data: {
         videoUrl,
         videoTitle: videoId ? `YouTube Video (${videoId})` : null,
         senderEmail,
-        recipientEmail,
+        recipientEmail: "",
         senderId: user?.id || null,
         introMessage: introMessage || null,
         watermarked: planConfig.watermark,
@@ -69,15 +73,6 @@ export async function POST(request: NextRequest) {
     });
 
     const boothUrl = `${process.env.NEXT_PUBLIC_APP_URL}/booth/${reaction.boothToken}`;
-
-    // Send invite email (non-blocking, don't fail the request if email fails)
-    sendBoothInviteEmail(
-      recipientEmail,
-      senderEmail,
-      boothUrl,
-      reaction.videoTitle,
-      introMessage
-    ).catch((err) => console.error("Failed to send invite email:", err));
 
     return NextResponse.json({
       id: reaction.id,

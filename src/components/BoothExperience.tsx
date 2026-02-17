@@ -7,7 +7,6 @@ import type { ReactionEventLog } from "@/lib/types";
 interface Reaction {
   id: string;
   videoUrl: string;
-  senderEmail: string;
   introMessage: string | null;
   maxVideoLength: number;
   watermarked: boolean;
@@ -79,8 +78,7 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
           You&apos;ve been invited to a Reaction Booth!
         </h1>
         <p className="text-gray-500 mb-4">
-          <strong>{reaction.senderEmail}</strong> wants to see your reaction to a
-          video.
+          Someone wants to see your reaction to a video.
         </p>
         {reaction.introMessage && (
           <div className="bg-indigo-50 rounded-xl p-4 mb-6 text-left">
@@ -131,7 +129,8 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
               3
             </span>
             <p className="text-sm text-gray-600">
-              When you&apos;re done, we&apos;ll send the reaction to both of you
+              When you&apos;re done, your reaction will be saved and ready to
+              watch
             </p>
           </div>
         </div>
@@ -212,9 +211,8 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
         Reaction recorded!
       </h1>
       <p className="text-gray-500 mb-8">
-        Your reaction has been saved and both you and{" "}
-        <strong>{reaction.senderEmail}</strong> will receive an email when
-        it&apos;s ready to watch.
+        Your reaction has been saved! The person who sent you this link can now
+        watch it.
       </p>
       <a
         href="/"

@@ -16,12 +16,12 @@ export default function Home() {
         </h1>
         <p className="text-lg text-gray-500 max-w-2xl mx-auto mb-10 text-balance">
           ReactionBooth turns any YouTube link into a private reaction
-          experience. Paste a link, enter two emails, and we handle the rest —
-          from recording to delivery.
+          experience. Paste a link, share it, and capture their genuine
+          reaction.
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link
-            href="/create"
+            href="/dashboard"
             className="bg-indigo-500 text-white px-8 py-3.5 rounded-xl font-medium hover:bg-indigo-600 transition-colors text-lg"
           >
             Create a Reaction
@@ -44,7 +44,7 @@ export default function Home() {
           Three steps. That&apos;s it.
         </h2>
         <p className="text-gray-500 text-center mb-16 max-w-xl mx-auto">
-          No accounts required, no software to install. Anyone can use it.
+          No software to install, no editing required. Anyone can use it.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="text-center">
@@ -83,16 +83,19 @@ export default function Home() {
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
-                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                <polyline points="22,6 12,13 2,6" />
+                <circle cx="18" cy="5" r="3" />
+                <circle cx="6" cy="12" r="3" />
+                <circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
               </svg>
             </div>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              2. Send to someone
+              2. Share the link
             </h3>
             <p className="text-gray-500 text-sm">
-              Enter their email and yours. They get a private booth link with a
-              friendly walkthrough — no surprises.
+              We&apos;ll give you a private booth link. Share it however you
+              want — text, DM, email, you name it.
             </p>
           </div>
           <div className="text-center">
@@ -115,8 +118,8 @@ export default function Home() {
               3. Watch the reaction
             </h3>
             <p className="text-gray-500 text-sm">
-              They press play, we record their face and voice. When done, both
-              of you get the final reaction video automatically.
+              They press play, we record their face and voice. When done, the
+              reaction video is ready to watch.
             </p>
           </div>
         </div>
@@ -218,7 +221,7 @@ export default function Home() {
               ))}
             </ul>
             <Link
-              href="/create"
+              href="/dashboard"
               className="block w-full text-center bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200 transition-colors"
             >
               Get Started
@@ -283,7 +286,7 @@ export default function Home() {
             Now you can. Create your first reaction in under a minute.
           </p>
           <Link
-            href="/create"
+            href="/dashboard"
             className="inline-block bg-indigo-500 text-white px-8 py-3.5 rounded-xl font-medium hover:bg-indigo-600 transition-colors text-lg"
           >
             Create a Reaction
