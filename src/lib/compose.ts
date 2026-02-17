@@ -26,6 +26,7 @@ interface TimelineSegment {
 
 const BRAND_BAR_H = 36;
 const BRAND_COLOR = "#6366f1";
+const BRAND_HEX = "0x6366f1"; // ffmpeg pad-filter format (no #)
 const BRAND_TEXT = "ReactionBooth";
 
 async function commandExists(cmd: string): Promise<boolean> {
@@ -172,10 +173,15 @@ function buildFilterGraph(
 
   // Video compositing
   const isPip = layout.startsWith("pip-");
+  const alpha = watermark ? "white" : "white@0.6";
+  const dur = totalDurationS.toFixed(3);
 
   if (isPip) {
-    filters.push(`[ytv]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:black[bg]`);
-    filters.push(`[1:v]scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2:black[pip]`);
+    // Output: 1920×1080. Content area: 1920×1044. Brand bar: 1920×36 at bottom.
+    const pipW = 480; // 25% of canvas width, 16:9
+    const pipH = 270;
+    filters.push(`[ytv]scale=1920:1044:force_original_aspect_ratio=decrease,pad=1920:1044:(ow-iw)/2:(oh-ih)/2:${BRAND_HEX}[bg]`);
+    filters.push(`[1:v]scale=${pipW}:${pipH}:force_original_aspect_ratio=decrease,pad=${pipW}:${pipH}:(ow-iw)/2:(oh-ih)/2:${BRAND_HEX}[pip]`);
 
     let overlayPos: string;
     switch (layout) {
@@ -187,26 +193,25 @@ function buildFilterGraph(
     }
 
     filters.push(`[bg][pip]overlay=${overlayPos}[vidcomp]`);
-    filters.push(`color=c=${BRAND_COLOR}:s=1280x${BRAND_BAR_H}:d=${totalDurationS.toFixed(3)}[brand_bar]`);
-    const alpha = watermark ? "white" : "white@0.6";
+    filters.push(`color=c=${BRAND_COLOR}:s=1920x${BRAND_BAR_H}:d=${dur}[brand_bar]`);
     filters.push(`[brand_bar]drawtext=text='${BRAND_TEXT}':fontsize=16:fontcolor=${alpha}:x=(w-text_w)/2:y=(h-text_h)/2[brand_text]`);
     filters.push(`[vidcomp][brand_text]vstack=inputs=2[outv]`);
 
   } else if (layout === "side-by-side") {
-    filters.push(`[ytv]scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2:black[left]`);
-    filters.push(`[1:v]scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2:black[right]`);
+    // Output: 1920×1080. Slots: 960×1044 each. Brand bar: 1920×36 at bottom.
+    filters.push(`[ytv]scale=960:1044:force_original_aspect_ratio=decrease,pad=960:1044:(ow-iw)/2:(oh-ih)/2:${BRAND_HEX}[left]`);
+    filters.push(`[1:v]scale=960:1044:force_original_aspect_ratio=decrease,pad=960:1044:(ow-iw)/2:(oh-ih)/2:${BRAND_HEX}[right]`);
     filters.push(`[left][right]hstack=inputs=2[vidcomp]`);
-    filters.push(`color=c=${BRAND_COLOR}:s=1280x${BRAND_BAR_H}:d=${totalDurationS.toFixed(3)}[brand_bar]`);
-    const alpha = watermark ? "white" : "white@0.6";
+    filters.push(`color=c=${BRAND_COLOR}:s=1920x${BRAND_BAR_H}:d=${dur}[brand_bar]`);
     filters.push(`[brand_bar]drawtext=text='${BRAND_TEXT}':fontsize=16:fontcolor=${alpha}:x=(w-text_w)/2:y=(h-text_h)/2[brand_text]`);
     filters.push(`[vidcomp][brand_text]vstack=inputs=2[outv]`);
 
   } else {
-    // stacked
-    filters.push(`[ytv]scale=720:406:force_original_aspect_ratio=decrease,pad=720:406:(ow-iw)/2:(oh-ih)/2:black[top]`);
-    filters.push(`[1:v]scale=720:406:force_original_aspect_ratio=decrease,pad=720:406:(ow-iw)/2:(oh-ih)/2:black[bottom]`);
-    filters.push(`color=c=${BRAND_COLOR}:s=720x${BRAND_BAR_H}:d=${totalDurationS.toFixed(3)}[brand_bar]`);
-    const alpha = watermark ? "white" : "white@0.6";
+    // stacked — Output: 1080×1920. Slots: 1080×942 each. Brand bar: 1080×36 in middle.
+    // 942 + 36 + 942 = 1920 ✓
+    filters.push(`[ytv]scale=1080:942:force_original_aspect_ratio=decrease,pad=1080:942:(ow-iw)/2:(oh-ih)/2:${BRAND_HEX}[top]`);
+    filters.push(`[1:v]scale=1080:942:force_original_aspect_ratio=decrease,pad=1080:942:(ow-iw)/2:(oh-ih)/2:${BRAND_HEX}[bottom]`);
+    filters.push(`color=c=${BRAND_COLOR}:s=1080x${BRAND_BAR_H}:d=${dur}[brand_bar]`);
     filters.push(`[brand_bar]drawtext=text='${BRAND_TEXT}':fontsize=16:fontcolor=${alpha}:x=(w-text_w)/2:y=(h-text_h)/2[brand_text]`);
     filters.push(`[top][brand_text][bottom]vstack=inputs=3[outv]`);
   }

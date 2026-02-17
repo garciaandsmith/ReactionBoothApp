@@ -204,6 +204,7 @@ export default function WatchPlayer({
 
   const hasEvents = events && events.events.length > 0;
   const isPip = selectedLayout.startsWith("pip-");
+  const isStacked = selectedLayout === "stacked";
 
   // --- Dynamic layout styles (no remount — same elements, different CSS) ---
   const getYouTubeContainerStyle = (): React.CSSProperties => {
@@ -216,7 +217,7 @@ export default function WatchPlayer({
       return { flex: 1, minWidth: 0 };
     }
     // stacked
-    return { width: "100%" };
+    return { flex: 1, minHeight: 0, width: "100%" };
   };
 
   const getWebcamContainerStyle = (): React.CSSProperties => {
@@ -243,13 +244,25 @@ export default function WatchPlayer({
       return { flex: 1, minWidth: 0 };
     }
     // stacked
-    return { width: "100%" };
+    return { flex: 1, minHeight: 0, width: "100%" };
   };
 
   const getPreviewContainerClassName = () => {
-    if (isPip) return "relative w-full aspect-video bg-black";
-    if (selectedLayout === "side-by-side") return "w-full bg-black flex flex-row";
-    return "w-full bg-black flex flex-col";
+    if (isPip) return "relative w-full aspect-video";
+    if (selectedLayout === "side-by-side") return "w-full aspect-video flex flex-row overflow-hidden";
+    // stacked: width driven by aspect-ratio + max-height, centred by wrapper
+    return "flex flex-col overflow-hidden";
+  };
+
+  const getPreviewContainerStyle = (): React.CSSProperties => {
+    if (isStacked) {
+      return {
+        backgroundColor: "#6366f1",
+        aspectRatio: "9/16",
+        maxHeight: "calc(100vh - 14rem)",
+      };
+    }
+    return { backgroundColor: "#6366f1" };
   };
 
   return (
@@ -268,33 +281,47 @@ export default function WatchPlayer({
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2">
         {hasEvents ? (
           <>
-            <div className={getPreviewContainerClassName()}>
-              <div style={getYouTubeContainerStyle()} className={!isPip && selectedLayout !== "side-by-side" ? "aspect-video" : undefined}>
-                <YouTubePlayer
-                  ref={youtubeRef}
-                  videoUrl={reaction.videoUrl}
-                  controlledMode={true}
-                  onReady={() => setYoutubeReady(true)}
-                />
-              </div>
-              <div style={getWebcamContainerStyle()} className={!isPip ? "aspect-video" : undefined}>
-                <video
-                  ref={webcamRef}
-                  src={reaction.recordingUrl}
-                  controls
-                  playsInline
-                  className="w-full h-full object-cover"
-                  style={{ transform: "scaleX(-1)" }}
-                />
+            {/* Centering wrapper: centres the portrait box for stacked, no-op for others */}
+            <div className={isStacked ? "flex justify-center" : ""}>
+              <div className={getPreviewContainerClassName()} style={getPreviewContainerStyle()}>
+                <div style={getYouTubeContainerStyle()}>
+                  <YouTubePlayer
+                    ref={youtubeRef}
+                    videoUrl={reaction.videoUrl}
+                    controlledMode={true}
+                    onReady={() => setYoutubeReady(true)}
+                  />
+                </div>
+                {/* Brand bar inside container for stacked (sits between the two videos) */}
+                {isStacked && (
+                  <div
+                    className="flex items-center justify-center text-white text-xs font-medium"
+                    style={{ backgroundColor: "#6366f1", flexShrink: 0, height: 36 }}
+                  >
+                    ReactionBooth
+                  </div>
+                )}
+                <div style={getWebcamContainerStyle()}>
+                  <video
+                    ref={webcamRef}
+                    src={reaction.recordingUrl}
+                    controls
+                    playsInline
+                    className="w-full h-full object-contain"
+                    style={{ transform: "scaleX(-1)" }}
+                  />
+                </div>
               </div>
             </div>
-            {/* Brand bar preview */}
-            <div
-              className="flex items-center justify-center text-white text-sm font-medium"
-              style={{ backgroundColor: "#6366f1", height: 36 }}
-            >
-              ReactionBooth
-            </div>
+            {/* Brand bar below container for PiP and side-by-side */}
+            {!isStacked && (
+              <div
+                className="flex items-center justify-center text-white text-sm font-medium"
+                style={{ backgroundColor: "#6366f1", height: 36 }}
+              >
+                ReactionBooth
+              </div>
+            )}
           </>
         ) : (
           <video
