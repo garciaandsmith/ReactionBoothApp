@@ -18,5 +18,19 @@ export interface ReactionEventLog {
   recordingDurationMs: number;
 }
 
-// Layout types for the watch/download views
-export type WatchLayout = "pip-desktop" | "stacked-mobile";
+// Layout types for composited downloads
+export type WatchLayout =
+  | "pip-bottom-right"
+  | "pip-bottom-left"
+  | "pip-top-right"
+  | "pip-top-left"
+  | "side-by-side"
+  | "stacked";
+
+// Volume settings for compositing
+export interface ComposeVolumeSettings {
+  /** YouTube audio volume 0-200 */
+  youtubeVolume: number;
+  /** Webcam/mic audio volume 0-200 */
+  webcamVolume: number;
+}

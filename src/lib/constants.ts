@@ -1,3 +1,5 @@
+import type { WatchLayout } from "./types";
+
 export const PLANS = {
   free: {
     name: "Free",
@@ -7,7 +9,7 @@ export const PLANS = {
     linkLifespanDays: 7,
     dashboard: false,
     customBranding: false,
-    layouts: ["pip-desktop"] as const,
+    layouts: ["pip-bottom-right", "side-by-side", "stacked"] as WatchLayout[],
     downloadBurnsAfterUse: true,
   },
   pro: {
@@ -18,16 +20,29 @@ export const PLANS = {
     linkLifespanDays: 30,
     dashboard: true,
     customBranding: true,
-    layouts: ["pip-desktop", "stacked-mobile"] as const,
+    layouts: [
+      "pip-bottom-right",
+      "pip-bottom-left",
+      "pip-top-right",
+      "pip-top-left",
+      "side-by-side",
+      "stacked",
+    ] as WatchLayout[],
     downloadBurnsAfterUse: false,
   },
 } as const;
 
 export type PlanType = keyof typeof PLANS;
 
-export const LAYOUTS = {
-  "pip-desktop": "Desktop (Picture in Picture)",
-  "stacked-mobile": "Mobile (Stacked)",
-} as const;
+export const LAYOUTS: Record<WatchLayout, string> = {
+  "pip-bottom-right": "PiP Bottom Right",
+  "pip-bottom-left": "PiP Bottom Left",
+  "pip-top-right": "PiP Top Right",
+  "pip-top-left": "PiP Top Left",
+  "side-by-side": "Side by Side",
+  "stacked": "Stacked",
+};
+
+export const ALL_LAYOUTS = Object.keys(LAYOUTS) as WatchLayout[];
 
 export type LayoutType = keyof typeof LAYOUTS;

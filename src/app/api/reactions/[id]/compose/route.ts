@@ -3,14 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { composeReaction, checkDependencies } from "@/lib/compose";
 import { readFile, mkdir } from "fs/promises";
 import { join } from "path";
-import type { ReactionEventLog, WatchLayout } from "@/lib/types";
+import { ALL_LAYOUTS } from "@/lib/constants";
+import type { ReactionEventLog, WatchLayout, ComposeVolumeSettings } from "@/lib/types";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    // Check dependencies first
     const deps = await checkDependencies();
     if (!deps.ffmpeg || !deps.ytdlp) {
       const missing = [];
@@ -26,10 +26,14 @@ export async function POST(
 
     const body = await request.json();
     const layout = body.layout as WatchLayout;
+    const volume: ComposeVolumeSettings = {
+      youtubeVolume: Math.max(0, Math.min(200, body.youtubeVolume ?? 100)),
+      webcamVolume: Math.max(0, Math.min(200, body.webcamVolume ?? 100)),
+    };
 
-    if (!layout || !["pip-desktop", "stacked-mobile"].includes(layout)) {
+    if (!layout || !ALL_LAYOUTS.includes(layout)) {
       return NextResponse.json(
-        { error: 'Invalid layout. Use "pip-desktop" or "stacked-mobile".' },
+        { error: `Invalid layout. Use one of: ${ALL_LAYOUTS.join(", ")}` },
         { status: 400 }
       );
     }
@@ -53,31 +57,17 @@ export async function POST(
       );
     }
 
-    // Check if already composed with this layout
-    if (
-      reaction.composedUrl &&
-      reaction.composedUrl !== reaction.recordingUrl &&
-      reaction.selectedLayout === layout
-    ) {
-      return NextResponse.json({
-        composedUrl: reaction.composedUrl,
-        cached: true,
-      });
-    }
-
-    // Resolve webcam recording path
     let webcamPath: string;
     if (reaction.recordingUrl.startsWith("/api/uploads/")) {
       const relativePath = reaction.recordingUrl.replace("/api/uploads/", "");
       webcamPath = join(process.cwd(), "uploads", relativePath);
     } else {
       return NextResponse.json(
-        { error: "Remote recording compositing not yet supported. Use local uploads." },
-        { status: 501 }
+        { error: "Recording path not recognized." },
+        { status: 400 }
       );
     }
 
-    // Load events log
     let eventsLog: ReactionEventLog;
     if (reaction.eventsUrl.startsWith("/api/uploads/")) {
       const relativePath = reaction.eventsUrl.replace("/api/uploads/", "");
@@ -85,17 +75,12 @@ export async function POST(
       const raw = await readFile(eventsPath, "utf-8");
       eventsLog = JSON.parse(raw);
     } else {
-      const res = await fetch(reaction.eventsUrl);
-      if (!res.ok) {
-        return NextResponse.json(
-          { error: "Failed to fetch event log." },
-          { status: 500 }
-        );
-      }
-      eventsLog = await res.json();
+      return NextResponse.json(
+        { error: "Events path not recognized." },
+        { status: 400 }
+      );
     }
 
-    // Set up output path
     const outputDir = join(process.cwd(), "uploads", "reactions", reaction.id);
     await mkdir(outputDir, { recursive: true });
     const outputFilename = `composed-${layout}-${Date.now()}.mp4`;
@@ -104,16 +89,15 @@ export async function POST(
 
     const plan = reaction.sender?.plan ?? "free";
 
-    // Compose
     await composeReaction({
       webcamPath,
       eventsLog,
       layout,
       outputPath,
       watermark: plan === "free",
+      volume,
     });
 
-    // Update reaction with composed URL
     await prisma.reaction.update({
       where: { id: reaction.id },
       data: {

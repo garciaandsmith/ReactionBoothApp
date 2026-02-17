@@ -1,29 +1,33 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { join } from "path";
-import { mkdtemp, readFile, rm, access } from "fs/promises";
+import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
-import type { ReactionEventLog, WatchLayout } from "./types";
+import type { ReactionEventLog, WatchLayout, ComposeVolumeSettings } from "./types";
 
 const execFileAsync = promisify(execFile);
 
 interface ComposeOptions {
-  webcamPath: string; // absolute path to webcam .webm
+  webcamPath: string;
   eventsLog: ReactionEventLog;
   layout: WatchLayout;
-  outputPath: string; // absolute path for output .mp4
+  outputPath: string;
   watermark?: boolean;
+  volume?: ComposeVolumeSettings;
 }
 
 interface TimelineSegment {
   type: "playing" | "paused";
-  startMs: number; // start in recording timeline
-  endMs: number; // end in recording timeline
-  ytStartS: number; // YouTube time at segment start
-  ytEndS: number; // YouTube time at segment end (same as start for paused)
+  startMs: number;
+  endMs: number;
+  ytStartS: number;
+  ytEndS: number;
 }
 
-// Check if a command is available
+const BRAND_BAR_H = 36;
+const BRAND_COLOR = "#6366f1";
+const BRAND_TEXT = "ReactionBooth";
+
 async function commandExists(cmd: string): Promise<boolean> {
   try {
     await execFileAsync(process.platform === "win32" ? "where" : "which", [cmd]);
@@ -41,12 +45,10 @@ export async function checkDependencies(): Promise<{ ffmpeg: boolean; ytdlp: boo
   return { ffmpeg, ytdlp };
 }
 
-// Download YouTube video using yt-dlp
 export async function downloadYouTube(
   videoUrl: string,
   outputPath: string
 ): Promise<void> {
-  // Download best quality mp4 (h264+aac) for FFmpeg compatibility
   await execFileAsync("yt-dlp", [
     "-f", "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/best",
     "--merge-output-format", "mp4",
@@ -54,10 +56,9 @@ export async function downloadYouTube(
     "--no-playlist",
     "--no-check-certificates",
     videoUrl,
-  ], { timeout: 120000 }); // 2 min timeout
+  ], { timeout: 120000 });
 }
 
-// Build timeline segments from event log
 function buildTimeline(events: ReactionEventLog): TimelineSegment[] {
   const segments: TimelineSegment[] = [];
   const sortedEvents = [...events.events].sort((a, b) => a.timestampMs - b.timestampMs);
@@ -65,7 +66,6 @@ function buildTimeline(events: ReactionEventLog): TimelineSegment[] {
 
   if (sortedEvents.length === 0) return segments;
 
-  // If recording starts before first play, add a paused segment
   const firstEvent = sortedEvents[0];
   if (firstEvent.timestampMs > 0) {
     segments.push({
@@ -77,9 +77,7 @@ function buildTimeline(events: ReactionEventLog): TimelineSegment[] {
     });
   }
 
-  let isPlaying = false;
   let currentYtTime = 0;
-  let segmentStartMs = firstEvent.timestampMs;
 
   for (let i = 0; i < sortedEvents.length; i++) {
     const event = sortedEvents[i];
@@ -87,22 +85,17 @@ function buildTimeline(events: ReactionEventLog): TimelineSegment[] {
     const segmentEndMs = nextEvent ? nextEvent.timestampMs : totalDurationMs;
 
     if (event.type === "play") {
-      isPlaying = true;
       currentYtTime = event.videoTimeS;
-      segmentStartMs = event.timestampMs;
-
-      const durationMs = segmentEndMs - segmentStartMs;
+      const durationMs = segmentEndMs - event.timestampMs;
       segments.push({
         type: "playing",
-        startMs: segmentStartMs,
+        startMs: event.timestampMs,
         endMs: segmentEndMs,
         ytStartS: currentYtTime,
         ytEndS: currentYtTime + durationMs / 1000,
       });
     } else if (event.type === "pause" || event.type === "ended") {
-      isPlaying = false;
       currentYtTime = event.videoTimeS;
-
       if (segmentEndMs > event.timestampMs) {
         segments.push({
           type: "paused",
@@ -114,20 +107,18 @@ function buildTimeline(events: ReactionEventLog): TimelineSegment[] {
       }
     } else if (event.type === "seek") {
       currentYtTime = event.videoTimeS;
-    } else if (event.type === "buffering") {
-      // Treat buffering as a brief pause — the next play event resumes
     }
   }
 
   return segments;
 }
 
-// Build the FFmpeg filter graph for timeline reconstruction + compositing
 function buildFilterGraph(
   segments: TimelineSegment[],
   layout: WatchLayout,
   totalDurationS: number,
-  watermark: boolean
+  watermark: boolean,
+  volume: ComposeVolumeSettings
 ): string {
   const filters: string[] = [];
   const segLabels: string[] = [];
@@ -141,7 +132,6 @@ function buildFilterGraph(
     const aLabel = `seg${segIdx}a`;
 
     if (seg.type === "playing") {
-      // Trim YouTube video for this playing segment
       filters.push(
         `[0:v]trim=start=${seg.ytStartS.toFixed(3)}:duration=${durationS.toFixed(3)},setpts=PTS-STARTPTS[${vLabel}]`
       );
@@ -149,7 +139,6 @@ function buildFilterGraph(
         `[0:a]atrim=start=${seg.ytStartS.toFixed(3)}:duration=${durationS.toFixed(3)},asetpts=PTS-STARTPTS[${aLabel}]`
       );
     } else {
-      // Paused: freeze frame at ytStartS
       filters.push(
         `[0:v]trim=start=${seg.ytStartS.toFixed(3)}:end=${(seg.ytStartS + 0.04).toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_duration=${durationS.toFixed(3)}:stop_mode=clone,setpts=PTS-STARTPTS[${vLabel}]`
       );
@@ -163,81 +152,92 @@ function buildFilterGraph(
   }
 
   if (segLabels.length === 0) {
-    // Fallback: use entire YouTube video
     filters.push(`[0:v]setpts=PTS-STARTPTS[ytv]`);
     filters.push(`[0:a]asetpts=PTS-STARTPTS[yta]`);
   } else if (segLabels.length === 1) {
-    // Single segment — rename to ytv/yta
-    const vLabel = `seg0v`;
-    const aLabel = `seg0a`;
-    filters.push(`[${vLabel}]setpts=PTS-STARTPTS[ytv]`);
-    filters.push(`[${aLabel}]asetpts=PTS-STARTPTS[yta]`);
+    filters.push(`[seg0v]setpts=PTS-STARTPTS[ytv]`);
+    filters.push(`[seg0a]asetpts=PTS-STARTPTS[yta]`);
   } else {
-    // Concatenate all segments
     filters.push(
       `${segLabels.join("")}concat=n=${segLabels.length}:v=1:a=1[ytv][yta]`
     );
   }
 
-  // Now composite based on layout
-  if (layout === "pip-desktop") {
-    // Scale YouTube to 1280x720, webcam to 320x180, overlay in bottom-right
+  // Audio: normalize + user volume
+  const ytVol = (volume.youtubeVolume / 100).toFixed(2);
+  const wcVol = (volume.webcamVolume / 100).toFixed(2);
+  filters.push(`[yta]loudnorm=I=-16:TP=-1.5:LRA=11,volume=${ytVol}[yt_audio]`);
+  filters.push(`[1:a]loudnorm=I=-16:TP=-1.5:LRA=11,volume=${wcVol}[wc_audio]`);
+  filters.push(`[yt_audio][wc_audio]amix=inputs=2:duration=shortest:dropout_transition=2[outa]`);
+
+  // Video compositing
+  const isPip = layout.startsWith("pip-");
+
+  if (isPip) {
     filters.push(`[ytv]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:black[bg]`);
     filters.push(`[1:v]scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2:black[pip]`);
-    filters.push(`[bg][pip]overlay=W-w-16:H-h-16[compv]`);
 
-    if (watermark) {
-      filters.push(
-        `[compv]drawtext=text='ReactionBooth':fontsize=18:fontcolor=white@0.5:x=16:y=16[outv]`
-      );
-    } else {
-      filters.push(`[compv]copy[outv]`);
+    let overlayPos: string;
+    switch (layout) {
+      case "pip-bottom-right": overlayPos = "W-w-16:H-h-16"; break;
+      case "pip-bottom-left":  overlayPos = "16:H-h-16"; break;
+      case "pip-top-right":    overlayPos = "W-w-16:16"; break;
+      case "pip-top-left":     overlayPos = "16:16"; break;
+      default:                 overlayPos = "W-w-16:H-h-16";
     }
+
+    filters.push(`[bg][pip]overlay=${overlayPos}[vidcomp]`);
+    filters.push(`color=c=${BRAND_COLOR}:s=1280x${BRAND_BAR_H}:d=${totalDurationS.toFixed(3)}[brand_bar]`);
+    const alpha = watermark ? "white" : "white@0.6";
+    filters.push(`[brand_bar]drawtext=text='${BRAND_TEXT}':fontsize=16:fontcolor=${alpha}:x=(w-text_w)/2:y=(h-text_h)/2[brand_text]`);
+    filters.push(`[vidcomp][brand_text]vstack=inputs=2[outv]`);
+
+  } else if (layout === "side-by-side") {
+    filters.push(`[ytv]scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2:black[left]`);
+    filters.push(`[1:v]scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2:black[right]`);
+    filters.push(`[left][right]hstack=inputs=2[vidcomp]`);
+    filters.push(`color=c=${BRAND_COLOR}:s=1280x${BRAND_BAR_H}:d=${totalDurationS.toFixed(3)}[brand_bar]`);
+    const alpha = watermark ? "white" : "white@0.6";
+    filters.push(`[brand_bar]drawtext=text='${BRAND_TEXT}':fontsize=16:fontcolor=${alpha}:x=(w-text_w)/2:y=(h-text_h)/2[brand_text]`);
+    filters.push(`[vidcomp][brand_text]vstack=inputs=2[outv]`);
+
   } else {
-    // Stacked mobile: YouTube top (720x406), bar (720x40), webcam bottom (720x406)
+    // stacked
     filters.push(`[ytv]scale=720:406:force_original_aspect_ratio=decrease,pad=720:406:(ow-iw)/2:(oh-ih)/2:black[top]`);
     filters.push(`[1:v]scale=720:406:force_original_aspect_ratio=decrease,pad=720:406:(ow-iw)/2:(oh-ih)/2:black[bottom]`);
-    filters.push(`color=c=#6366f1:s=720x40:d=${totalDurationS.toFixed(3)}[bar]`);
-
-    if (watermark) {
-      filters.push(
-        `[bar]drawtext=text='ReactionBooth':fontsize=20:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2[bartext]`
-      );
-      filters.push(`[top][bartext][bottom]vstack=inputs=3[outv]`);
-    } else {
-      filters.push(`[top][bar][bottom]vstack=inputs=3[outv]`);
-    }
+    filters.push(`color=c=${BRAND_COLOR}:s=720x${BRAND_BAR_H}:d=${totalDurationS.toFixed(3)}[brand_bar]`);
+    const alpha = watermark ? "white" : "white@0.6";
+    filters.push(`[brand_bar]drawtext=text='${BRAND_TEXT}':fontsize=16:fontcolor=${alpha}:x=(w-text_w)/2:y=(h-text_h)/2[brand_text]`);
+    filters.push(`[top][brand_text][bottom]vstack=inputs=3[outv]`);
   }
-
-  // Mix audio: YouTube audio + webcam mic audio
-  filters.push(`[yta][1:a]amix=inputs=2:duration=shortest:dropout_transition=2[outa]`);
 
   return filters.join(";\n");
 }
 
-// Main compositing function
 export async function composeReaction(options: ComposeOptions): Promise<void> {
-  const { webcamPath, eventsLog, layout, outputPath, watermark = false } = options;
+  const {
+    webcamPath,
+    eventsLog,
+    layout,
+    outputPath,
+    watermark = false,
+    volume = { youtubeVolume: 100, webcamVolume: 100 },
+  } = options;
 
-  // Build timeline
   const segments = buildTimeline(eventsLog);
   const totalDurationS = eventsLog.recordingDurationMs / 1000;
 
-  // Download YouTube video to temp dir
   const tempDir = await mkdtemp(join(tmpdir(), "reactionbooth-"));
   const ytPath = join(tempDir, "youtube.mp4");
 
   try {
     await downloadYouTube(eventsLog.videoUrl, ytPath);
+    const filterGraph = buildFilterGraph(segments, layout, totalDurationS, watermark, volume);
 
-    // Build filter graph
-    const filterGraph = buildFilterGraph(segments, layout, totalDurationS, watermark);
-
-    // Run FFmpeg
     await execFileAsync("ffmpeg", [
       "-y",
-      "-i", ytPath, // input 0: YouTube video
-      "-i", webcamPath, // input 1: webcam recording
+      "-i", ytPath,
+      "-i", webcamPath,
       "-filter_complex", filterGraph,
       "-map", "[outv]",
       "-map", "[outa]",
@@ -249,9 +249,8 @@ export async function composeReaction(options: ComposeOptions): Promise<void> {
       "-movflags", "+faststart",
       "-t", totalDurationS.toFixed(3),
       outputPath,
-    ], { timeout: 600000 }); // 10 min timeout
+    ], { timeout: 600000 });
   } finally {
-    // Clean up temp dir
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 }

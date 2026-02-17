@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import { readFile } from "fs/promises";
 import { join } from "path";
+import { PLANS } from "@/lib/constants";
+import type { WatchLayout } from "@/lib/types";
 import WatchPlayer from "./WatchPlayer";
 
 interface WatchPageProps {
@@ -24,17 +26,12 @@ async function fetchEvents(eventsUrl: string | null) {
   if (!eventsUrl) return null;
 
   try {
-    // Local file URL
     if (eventsUrl.startsWith("/api/uploads/")) {
       const relativePath = eventsUrl.replace("/api/uploads/", "");
       const filePath = join(process.cwd(), "uploads", relativePath);
       const data = await readFile(filePath, "utf-8");
       return JSON.parse(data);
     }
-
-    // Remote URL (Vercel Blob etc.)
-    const res = await fetch(eventsUrl, { cache: "force-cache" });
-    if (res.ok) return res.json();
   } catch (e) {
     console.error("Failed to fetch events:", e);
   }
@@ -53,7 +50,9 @@ export default async function WatchPage({ params }: WatchPageProps) {
   }
 
   const events = await fetchEvents(reaction.eventsUrl);
-  const senderPlan = reaction.sender?.plan ?? "free";
+  const senderPlan = (reaction.sender?.plan ?? "free") as keyof typeof PLANS;
+  const planConfig = PLANS[senderPlan];
+  const availableLayouts = [...planConfig.layouts] as WatchLayout[];
 
   return (
     <WatchPlayer
@@ -69,6 +68,7 @@ export default async function WatchPage({ params }: WatchPageProps) {
       }}
       events={events}
       senderPlan={senderPlan}
+      availableLayouts={availableLayouts}
     />
   );
 }

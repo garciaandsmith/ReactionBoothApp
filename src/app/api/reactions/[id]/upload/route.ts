@@ -55,29 +55,10 @@ export async function POST(
     let recordingUrl: string;
     let eventsUrl: string | null = null;
 
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
-      // Use Vercel Blob for production
-      const { put } = await import("@vercel/blob");
-      const blob = await put(videoFilename, file, {
-        access: "public",
-        contentType: file.type || "video/webm",
-      });
-      recordingUrl = blob.url;
+    recordingUrl = await saveLocally(videoFilename, file);
 
-      if (eventsJson) {
-        const eventsBlob = await put(eventsFilename, eventsJson, {
-          access: "public",
-          contentType: "application/json",
-        });
-        eventsUrl = eventsBlob.url;
-      }
-    } else {
-      // Fall back to local filesystem
-      recordingUrl = await saveLocally(videoFilename, file);
-
-      if (eventsJson) {
-        eventsUrl = await saveJsonLocally(eventsFilename, eventsJson);
-      }
+    if (eventsJson) {
+      eventsUrl = await saveJsonLocally(eventsFilename, eventsJson);
     }
 
     const updated = await prisma.reaction.update({

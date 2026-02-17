@@ -17,6 +17,7 @@ export interface YouTubePlayerHandle {
   getCurrentTime: () => number;
   getDuration: () => number;
   getPlayerState: () => number;
+  setVolume: (volume: number) => void;
 }
 
 interface YouTubePlayerProps {
@@ -75,6 +76,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerHandle, YouTubePlayerProps>(
       getCurrentTime: () => playerRef.current?.getCurrentTime() ?? 0,
       getDuration: () => playerRef.current?.getDuration() ?? 0,
       getPlayerState: () => playerRef.current?.getPlayerState() ?? -1,
+      setVolume: (v: number) => (playerRef.current as unknown as { setVolume(n: number): void })?.setVolume(Math.max(0, Math.min(100, v))),
     }));
 
     const initPlayer = useCallback(async () => {

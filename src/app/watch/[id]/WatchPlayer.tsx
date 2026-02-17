@@ -18,12 +18,12 @@ interface WatchPlayerProps {
   };
   events: ReactionEventLog | null;
   senderPlan: string;
+  availableLayouts: WatchLayout[];
 }
 
 type DownloadState =
   | { status: "idle" }
-  | { status: "choosing" }
-  | { status: "composing"; layout: WatchLayout }
+  | { status: "composing" }
   | { status: "ready"; url: string }
   | { status: "error"; message: string };
 
@@ -31,6 +31,7 @@ export default function WatchPlayer({
   reaction,
   events,
   senderPlan,
+  availableLayouts,
 }: WatchPlayerProps) {
   const youtubeRef = useRef<YouTubePlayerHandle>(null);
   const webcamRef = useRef<HTMLVideoElement>(null);
@@ -43,13 +44,27 @@ export default function WatchPlayer({
     status: "idle",
   });
 
-  const availableLayouts: WatchLayout[] =
-    senderPlan === "pro"
-      ? ["pip-desktop", "stacked-mobile"]
-      : ["pip-desktop"];
+  // Live preview state
+  const [selectedLayout, setSelectedLayout] = useState<WatchLayout>(
+    availableLayouts[0] ?? "pip-bottom-right"
+  );
+  const [ytVolume, setYtVolume] = useState(100);
+  const [wcVolume, setWcVolume] = useState(100);
+
+  // --- Live volume control ---
+  useEffect(() => {
+    // YouTube API volume is 0-100; our slider is 0-200
+    youtubeRef.current?.setVolume(Math.min(ytVolume, 100));
+  }, [ytVolume, youtubeReady]);
+
+  useEffect(() => {
+    if (webcamRef.current) {
+      // HTML5 video.volume is 0.0-1.0; our slider is 0-200
+      webcamRef.current.volume = Math.min(wcVolume / 100, 1.0);
+    }
+  }, [wcVolume]);
 
   // --- Synchronized playback ---
-
   const syncYouTubeToWebcam = useCallback(() => {
     if (!youtubeRef.current || !webcamRef.current || !events) return;
 
@@ -141,64 +156,101 @@ export default function WatchPlayer({
     };
   }, [events, syncYouTubeToWebcam, startSyncLoop, stopSyncLoop]);
 
-  // --- Download with layout selection + compositing ---
-
-  const handleDownloadClick = useCallback(() => {
+  // --- Download with compositing ---
+  const triggerCompose = useCallback(async () => {
     if (downloadUsed) return;
 
     if (!events || events.events.length === 0) {
-      // No events — download webcam-only
       window.open(`/api/reactions/${reaction.id}/download`, "_blank");
       if (senderPlan === "free") setDownloadUsed(true);
       return;
     }
 
-    if (availableLayouts.length === 1) {
-      // Only one option — skip chooser, go straight to compositing
-      triggerCompose(availableLayouts[0]);
-    } else {
-      setDownloadState({ status: "choosing" });
-    }
-  }, [downloadUsed, events, reaction.id, senderPlan, availableLayouts]);
+    setDownloadState({ status: "composing" });
 
-  const triggerCompose = useCallback(
-    async (layout: WatchLayout) => {
-      setDownloadState({ status: "composing", layout });
+    try {
+      const res = await fetch(`/api/reactions/${reaction.id}/compose`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          layout: selectedLayout,
+          youtubeVolume: ytVolume,
+          webcamVolume: wcVolume,
+        }),
+      });
 
-      try {
-        const res = await fetch(`/api/reactions/${reaction.id}/compose`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ layout }),
-        });
+      const data = await res.json();
 
-        const data = await res.json();
-
-        if (!res.ok) {
-          setDownloadState({
-            status: "error",
-            message: data.error || "Compositing failed",
-          });
-          return;
-        }
-
-        setDownloadState({ status: "ready", url: data.composedUrl });
-
-        // Increment download count
-        if (senderPlan === "free") {
-          setDownloadUsed(true);
-        }
-      } catch {
+      if (!res.ok) {
         setDownloadState({
           status: "error",
-          message: "Network error. Please try again.",
+          message: data.error || "Compositing failed",
         });
+        return;
       }
-    },
-    [reaction.id, senderPlan]
-  );
+
+      setDownloadState({ status: "ready", url: data.composedUrl });
+
+      if (senderPlan === "free") {
+        setDownloadUsed(true);
+      }
+    } catch {
+      setDownloadState({
+        status: "error",
+        message: "Network error. Please try again.",
+      });
+    }
+  }, [downloadUsed, events, reaction.id, senderPlan, selectedLayout, ytVolume, wcVolume]);
 
   const hasEvents = events && events.events.length > 0;
+  const isPip = selectedLayout.startsWith("pip-");
+
+  // --- Dynamic layout styles (no remount — same elements, different CSS) ---
+  const getYouTubeContainerStyle = (): React.CSSProperties => {
+    if (!hasEvents) return { display: "none" };
+
+    if (isPip) {
+      return { position: "absolute", inset: 0 };
+    }
+    if (selectedLayout === "side-by-side") {
+      return { flex: 1, minWidth: 0 };
+    }
+    // stacked
+    return { width: "100%" };
+  };
+
+  const getWebcamContainerStyle = (): React.CSSProperties => {
+    if (isPip) {
+      const posStyles: Record<string, React.CSSProperties> = {
+        "pip-bottom-right": { bottom: 16, right: 16 },
+        "pip-bottom-left": { bottom: 16, left: 16 },
+        "pip-top-right": { top: 16, right: 16 },
+        "pip-top-left": { top: 16, left: 16 },
+      };
+      return {
+        position: "absolute",
+        width: "25%",
+        aspectRatio: "16/9",
+        borderRadius: 12,
+        overflow: "hidden",
+        border: "2px solid rgba(255,255,255,0.8)",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+        zIndex: 10,
+        ...posStyles[selectedLayout],
+      };
+    }
+    if (selectedLayout === "side-by-side") {
+      return { flex: 1, minWidth: 0 };
+    }
+    // stacked
+    return { width: "100%" };
+  };
+
+  const getPreviewContainerClassName = () => {
+    if (isPip) return "relative w-full aspect-video bg-black";
+    if (selectedLayout === "side-by-side") return "w-full bg-black flex flex-row";
+    return "w-full bg-black flex flex-col";
+  };
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
@@ -212,32 +264,38 @@ export default function WatchPlayer({
         </p>
       </div>
 
-      {/* Player area — always PiP for watching */}
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-8">
+      {/* Preview area — single set of elements, CSS-driven layout switching */}
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2">
         {hasEvents ? (
-          <div className="relative w-full aspect-video bg-black">
-            <div className="absolute inset-0">
-              <YouTubePlayer
-                ref={youtubeRef}
-                videoUrl={reaction.videoUrl}
-                controlledMode={true}
-                onReady={() => setYoutubeReady(true)}
-              />
+          <>
+            <div className={getPreviewContainerClassName()}>
+              <div style={getYouTubeContainerStyle()} className={!isPip && selectedLayout !== "side-by-side" ? "aspect-video" : undefined}>
+                <YouTubePlayer
+                  ref={youtubeRef}
+                  videoUrl={reaction.videoUrl}
+                  controlledMode={true}
+                  onReady={() => setYoutubeReady(true)}
+                />
+              </div>
+              <div style={getWebcamContainerStyle()} className={!isPip ? "aspect-video" : undefined}>
+                <video
+                  ref={webcamRef}
+                  src={reaction.recordingUrl}
+                  controls
+                  playsInline
+                  className="w-full h-full object-cover"
+                  style={{ transform: "scaleX(-1)" }}
+                />
+              </div>
             </div>
-            <div className="absolute bottom-4 right-4 w-1/4 aspect-video rounded-xl overflow-hidden border-2 border-white/80 shadow-lg z-10">
-              <video
-                ref={webcamRef}
-                src={reaction.recordingUrl}
-                controls
-                playsInline
-                className="w-full h-full object-cover"
-                style={{ transform: "scaleX(-1)" }}
-              />
-            </div>
-            <div className="absolute top-4 left-4 bg-black/40 backdrop-blur-sm text-white/80 px-3 py-1 rounded-lg text-xs font-medium z-10">
+            {/* Brand bar preview */}
+            <div
+              className="flex items-center justify-center text-white text-sm font-medium"
+              style={{ backgroundColor: "#6366f1", height: 36 }}
+            >
               ReactionBooth
             </div>
-          </div>
+          </>
         ) : (
           <video
             ref={webcamRef}
@@ -250,16 +308,67 @@ export default function WatchPlayer({
 
       {hasEvents && (
         <p className="text-center text-xs text-gray-400 mb-6">
-          Press play on the reaction video (bottom-right) to start synchronized
-          playback.
+          Press play on the reaction video to start synchronized playback.
+          Adjust layout and volume below — the preview updates live.
         </p>
+      )}
+
+      {/* Controls panel — always visible when there are events */}
+      {hasEvents && (
+        <div className="bg-gray-50 rounded-2xl border border-gray-200 p-6 mb-8">
+          {/* Layout chooser */}
+          <div className="mb-6">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">
+              Layout
+            </h3>
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+              {availableLayouts.map((l) => (
+                <button
+                  key={l}
+                  onClick={() => setSelectedLayout(l)}
+                  className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-colors ${
+                    selectedLayout === l
+                      ? "border-indigo-500 bg-indigo-50"
+                      : "border-gray-200 bg-white hover:border-gray-300"
+                  }`}
+                >
+                  <LayoutIcon layout={l} active={selectedLayout === l} />
+                  <span
+                    className={`text-[10px] leading-tight text-center ${
+                      selectedLayout === l
+                        ? "text-indigo-700 font-semibold"
+                        : "text-gray-500"
+                    }`}
+                  >
+                    {LAYOUTS[l]}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Volume sliders */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-gray-700">Volume</h3>
+            <VolumeSlider
+              label="YouTube Audio"
+              value={ytVolume}
+              onChange={setYtVolume}
+            />
+            <VolumeSlider
+              label="Webcam / Mic"
+              value={wcVolume}
+              onChange={setWcVolume}
+            />
+          </div>
+        </div>
       )}
 
       {/* Download section */}
       <div className="flex flex-col items-center gap-4">
         {downloadState.status === "idle" && (
           <button
-            onClick={handleDownloadClick}
+            onClick={triggerCompose}
             disabled={downloadUsed}
             className={`px-6 py-3 rounded-xl font-medium transition-colors ${
               downloadUsed
@@ -267,57 +376,12 @@ export default function WatchPlayer({
                 : "bg-indigo-500 text-white hover:bg-indigo-600"
             }`}
           >
-            {downloadUsed ? "Download Used" : "Download Composed Video"}
+            {downloadUsed
+              ? "Download Used"
+              : hasEvents
+              ? `Download as ${LAYOUTS[selectedLayout]}`
+              : "Download Video"}
           </button>
-        )}
-
-        {/* Layout chooser */}
-        {downloadState.status === "choosing" && (
-          <div className="bg-gray-50 rounded-2xl p-6 w-full max-w-md text-center">
-            <h3 className="font-semibold text-gray-900 mb-1">
-              Choose a layout
-            </h3>
-            <p className="text-sm text-gray-500 mb-4">
-              Select how you want the final video composed.
-            </p>
-            <div className="flex flex-col gap-3">
-              {availableLayouts.map((l) => (
-                <button
-                  key={l}
-                  onClick={() => triggerCompose(l)}
-                  className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl p-4 hover:border-indigo-300 hover:bg-indigo-50 transition-colors text-left"
-                >
-                  {l === "pip-desktop" ? (
-                    <div className="w-16 h-10 bg-gray-800 rounded relative flex-shrink-0">
-                      <div className="absolute bottom-0.5 right-0.5 w-4 h-3 bg-indigo-400 rounded-sm" />
-                    </div>
-                  ) : (
-                    <div className="w-10 h-12 rounded flex flex-col flex-shrink-0 overflow-hidden">
-                      <div className="flex-1 bg-gray-800" />
-                      <div className="h-1 bg-indigo-500" />
-                      <div className="flex-1 bg-gray-600" />
-                    </div>
-                  )}
-                  <div>
-                    <p className="font-medium text-gray-900 text-sm">
-                      {LAYOUTS[l]}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {l === "pip-desktop"
-                        ? "YouTube large, webcam in corner"
-                        : "YouTube top, webcam bottom"}
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => setDownloadState({ status: "idle" })}
-              className="text-sm text-gray-400 mt-3 hover:text-gray-600"
-            >
-              Cancel
-            </button>
-          </div>
         )}
 
         {/* Compositing in progress */}
@@ -329,8 +393,8 @@ export default function WatchPlayer({
             </h3>
             <p className="text-sm text-gray-500">
               Downloading YouTube source, syncing, and rendering the{" "}
-              {LAYOUTS[downloadState.layout].toLowerCase()} layout. This may
-              take a minute or two.
+              {LAYOUTS[selectedLayout].toLowerCase()} layout with your volume
+              settings. This may take a minute or two.
             </p>
           </div>
         )}
@@ -339,13 +403,20 @@ export default function WatchPlayer({
         {downloadState.status === "ready" && (
           <div className="bg-green-50 rounded-2xl p-6 w-full max-w-md text-center">
             <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#22c55e"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             </div>
-            <h3 className="font-semibold text-gray-900 mb-3">
-              Video ready!
-            </h3>
+            <h3 className="font-semibold text-gray-900 mb-3">Video ready!</h3>
             <a
               href={downloadState.url}
               download
@@ -359,9 +430,7 @@ export default function WatchPlayer({
         {/* Error */}
         {downloadState.status === "error" && (
           <div className="bg-red-50 rounded-2xl p-6 w-full max-w-md text-center">
-            <p className="text-red-600 font-medium mb-2">
-              Compositing failed
-            </p>
+            <p className="text-red-600 font-medium mb-2">Compositing failed</p>
             <p className="text-sm text-red-500 mb-4">
               {downloadState.message}
             </p>
@@ -400,6 +469,81 @@ export default function WatchPlayer({
           for watermark-free reactions.
         </p>
       )}
+    </div>
+  );
+}
+
+// --- Layout icon thumbnails ---
+
+function LayoutIcon({
+  layout,
+  active,
+}: {
+  layout: WatchLayout;
+  active: boolean;
+}) {
+  const bg = active ? "bg-indigo-400" : "bg-gray-600";
+  const fg = active ? "bg-indigo-300" : "bg-gray-400";
+
+  if (layout.startsWith("pip-")) {
+    const posMap: Record<string, string> = {
+      "pip-bottom-right": "bottom-0.5 right-0.5",
+      "pip-bottom-left": "bottom-0.5 left-0.5",
+      "pip-top-right": "top-0.5 right-0.5",
+      "pip-top-left": "top-0.5 left-0.5",
+    };
+    const pos = posMap[layout] ?? "bottom-0.5 right-0.5";
+    return (
+      <div className={`w-12 h-8 ${bg} rounded relative`}>
+        <div className={`absolute ${pos} w-4 h-3 ${fg} rounded-sm`} />
+      </div>
+    );
+  }
+
+  if (layout === "side-by-side") {
+    return (
+      <div className="w-12 h-8 rounded flex overflow-hidden gap-px">
+        <div className={`flex-1 ${bg}`} />
+        <div className={`flex-1 ${fg}`} />
+      </div>
+    );
+  }
+
+  // stacked
+  return (
+    <div className="w-12 h-8 rounded flex flex-col overflow-hidden gap-px">
+      <div className={`flex-1 ${bg}`} />
+      <div className="h-0.5 bg-indigo-500" />
+      <div className={`flex-1 ${fg}`} />
+    </div>
+  );
+}
+
+// --- Volume slider ---
+
+function VolumeSlider({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-4">
+      <span className="text-sm text-gray-600 w-28 flex-shrink-0">{label}</span>
+      <input
+        type="range"
+        min={0}
+        max={200}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+      />
+      <span className="text-sm text-gray-500 w-12 text-right tabular-nums">
+        {value}%
+      </span>
     </div>
   );
 }
