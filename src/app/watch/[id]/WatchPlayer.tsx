@@ -207,51 +207,12 @@ export default function WatchPlayer({
   const isStacked = selectedLayout === "stacked";
 
   // --- Dynamic layout styles (no remount — same elements, different CSS) ---
-  const getYouTubeContainerStyle = (): React.CSSProperties => {
-    if (!hasEvents) return { display: "none" };
-
-    if (isPip) {
-      return { position: "absolute", inset: 0 };
-    }
-    if (selectedLayout === "side-by-side") {
-      return { flex: 1, minWidth: 0 };
-    }
-    // stacked
-    return { flex: 1, minHeight: 0, width: "100%" };
-  };
-
-  const getWebcamContainerStyle = (): React.CSSProperties => {
-    if (isPip) {
-      const posStyles: Record<string, React.CSSProperties> = {
-        "pip-bottom-right": { bottom: 16, right: 16 },
-        "pip-bottom-left": { bottom: 16, left: 16 },
-        "pip-top-right": { top: 16, right: 16 },
-        "pip-top-left": { top: 16, left: 16 },
-      };
-      return {
-        position: "absolute",
-        width: "25%",
-        aspectRatio: "16/9",
-        borderRadius: 12,
-        overflow: "hidden",
-        border: "2px solid rgba(255,255,255,0.8)",
-        boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-        zIndex: 10,
-        ...posStyles[selectedLayout],
-      };
-    }
-    if (selectedLayout === "side-by-side") {
-      return { flex: 1, minWidth: 0 };
-    }
-    // stacked
-    return { flex: 1, minHeight: 0, width: "100%" };
-  };
+  // All layouts use a brand-color canvas with absolutely positioned video panels,
+  // mirroring the exact proportions of the FFmpeg output.
 
   const getPreviewContainerClassName = () => {
-    if (isPip) return "relative w-full aspect-video";
-    if (selectedLayout === "side-by-side") return "w-full aspect-video flex flex-row overflow-hidden";
-    // stacked: width driven by aspect-ratio + max-height, centred by wrapper
-    return "flex flex-col overflow-hidden";
+    // PIP + SBS: 16:9 landscape. Stacked: 9:16 portrait centred by wrapper.
+    return "relative overflow-hidden";
   };
 
   const getPreviewContainerStyle = (): React.CSSProperties => {
@@ -262,7 +223,114 @@ export default function WatchPlayer({
         maxHeight: "calc(100vh - 14rem)",
       };
     }
-    return { backgroundColor: "#6366f1" };
+    return {
+      backgroundColor: "#6366f1",
+      aspectRatio: "16/9",
+    };
+  };
+
+  // YouTube panel — absolute, proportional to output dimensions
+  const getYouTubeContainerStyle = (): React.CSSProperties => {
+    if (!hasEvents) return { display: "none" };
+
+    if (isPip) {
+      // Output: YouTube at (65,65) sized 1485×835 on a 1920×1080 canvas
+      return {
+        position: "absolute",
+        left: "3.385%",   // 65/1920
+        top: "6.019%",    // 65/1080
+        width: "77.344%", // 1485/1920
+        height: "77.315%", // 835/1080
+        overflow: "hidden",
+      };
+    }
+    if (selectedLayout === "side-by-side") {
+      // Output: YouTube 930×540 at (0, 270) on 1920×1080
+      return {
+        position: "absolute",
+        left: 0,
+        top: "25%",      // 270/1080
+        width: "48.438%", // 930/1920
+        height: "50%",   // 540/1080
+        overflow: "hidden",
+      };
+    }
+    // stacked: YouTube 1080×920 at (0,0) on 1080×1920
+    return {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      width: "100%",
+      height: "47.917%", // 920/1920
+      overflow: "hidden",
+    };
+  };
+
+  // Webcam panel — absolute, proportional to output dimensions
+  const getWebcamContainerStyle = (): React.CSSProperties => {
+    if (isPip) {
+      // Output: webcam 674×380 (≈35.1% wide) at corner with 65 px margin
+      const base: React.CSSProperties = {
+        position: "absolute",
+        width: "35.104%",  // 674/1920
+        aspectRatio: "16/9",
+        overflow: "hidden",
+        zIndex: 10,
+      };
+      const margin = "3.385%"; // 65/1920 horizontal; 6.019% = 65/1080 vertical
+      const vMargin = "6.019%";
+      switch (selectedLayout) {
+        case "pip-bottom-right": return { ...base, right: margin, bottom: vMargin };
+        case "pip-bottom-left":  return { ...base, left: margin,  bottom: vMargin };
+        case "pip-top-right":    return { ...base, right: margin, top: vMargin };
+        case "pip-top-left":     return { ...base, left: margin,  top: vMargin };
+        default:                 return { ...base, right: margin, bottom: vMargin };
+      }
+    }
+    if (selectedLayout === "side-by-side") {
+      // Output: webcam 930×540 at (990, 270) on 1920×1080
+      return {
+        position: "absolute",
+        left: "51.563%",  // 990/1920
+        top: "25%",       // 270/1080
+        width: "48.438%", // 930/1920
+        height: "50%",    // 540/1080
+        overflow: "hidden",
+      };
+    }
+    // stacked: webcam 1080×920 at (0, 1000) on 1080×1920
+    return {
+      position: "absolute",
+      bottom: 0,
+      left: 0,
+      width: "100%",
+      height: "47.917%", // 920/1920
+      overflow: "hidden",
+    };
+  };
+
+  // Watermark text overlay position within the brand-color visible area
+  const getWatermarkStyle = (): React.CSSProperties => {
+    const base: React.CSSProperties = {
+      position: "absolute",
+      color: "white",
+      fontSize: "clamp(8px, 1vw, 13px)",
+      fontWeight: 500,
+      opacity: 0.65,
+      pointerEvents: "none",
+      letterSpacing: "0.04em",
+      zIndex: 20,
+    };
+    if (isStacked) {
+      // Middle brand bar: ~47.9%–52.1% of container height
+      return { ...base, top: "49.6%", left: "50%", transform: "translate(-50%, -50%)" };
+    }
+    if (selectedLayout === "side-by-side") {
+      // Bottom border area (below y=75% of container)
+      return { ...base, bottom: "3%", left: "50%", transform: "translateX(-50%)" };
+    }
+    // PIP: bottom-left strip of brand color (below YouTube at ~83%, left of webcam)
+    return { ...base, bottom: "1.5%", left: "1.5%" };
   };
 
   return (
@@ -280,49 +348,37 @@ export default function WatchPlayer({
       {/* Preview area — single set of elements, CSS-driven layout switching */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2">
         {hasEvents ? (
-          <>
-            {/* Centering wrapper: centres the portrait box for stacked, no-op for others */}
-            <div className={isStacked ? "flex justify-center" : ""}>
-              <div className={getPreviewContainerClassName()} style={getPreviewContainerStyle()}>
-                <div style={getYouTubeContainerStyle()}>
-                  <YouTubePlayer
-                    ref={youtubeRef}
-                    videoUrl={reaction.videoUrl}
-                    controlledMode={true}
-                    onReady={() => setYoutubeReady(true)}
-                  />
-                </div>
-                {/* Brand bar inside container for stacked (sits between the two videos) */}
-                {isStacked && (
-                  <div
-                    className="flex items-center justify-center text-white text-xs font-medium"
-                    style={{ backgroundColor: "#6366f1", flexShrink: 0, height: 36 }}
-                  >
-                    ReactionBooth
-                  </div>
-                )}
-                <div style={getWebcamContainerStyle()}>
-                  <video
-                    ref={webcamRef}
-                    src={reaction.recordingUrl}
-                    controls
-                    playsInline
-                    className="w-full h-full object-contain"
-                    style={{ transform: "scaleX(-1)" }}
-                  />
-                </div>
+          /* Centering wrapper: centres the portrait box for stacked, no-op for others */
+          <div className={isStacked ? "flex justify-center bg-black" : ""}>
+            <div className={getPreviewContainerClassName()} style={getPreviewContainerStyle()}>
+              {/* YouTube panel */}
+              <div style={getYouTubeContainerStyle()}>
+                <YouTubePlayer
+                  ref={youtubeRef}
+                  videoUrl={reaction.videoUrl}
+                  controlledMode={true}
+                  onReady={() => setYoutubeReady(true)}
+                />
               </div>
+
+              {/* Webcam panel */}
+              <div style={getWebcamContainerStyle()}>
+                <video
+                  ref={webcamRef}
+                  src={reaction.recordingUrl}
+                  controls
+                  playsInline
+                  className="w-full h-full object-cover"
+                  style={{ transform: "scaleX(-1)" }}
+                />
+              </div>
+
+              {/* Watermark overlay — shown in the brand color visible areas */}
+              {reaction.watermarked && (
+                <span style={getWatermarkStyle()}>ReactionBooth</span>
+              )}
             </div>
-            {/* Brand bar below container for PiP and side-by-side */}
-            {!isStacked && (
-              <div
-                className="flex items-center justify-center text-white text-sm font-medium"
-                style={{ backgroundColor: "#6366f1", height: 36 }}
-              >
-                ReactionBooth
-              </div>
-            )}
-          </>
+          </div>
         ) : (
           <video
             ref={webcamRef}

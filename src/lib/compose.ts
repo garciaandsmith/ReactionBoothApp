@@ -171,49 +171,70 @@ function buildFilterGraph(
   filters.push(`[1:a]loudnorm=I=-16:TP=-1.5:LRA=11,volume=${wcVol}[wc_audio]`);
   filters.push(`[yt_audio][wc_audio]amix=inputs=2:duration=shortest:dropout_transition=2[outa]`);
 
-  // Video compositing
+  // Video compositing — brand color canvas + precise overlay placement
   const isPip = layout.startsWith("pip-");
-  const alpha = watermark ? "white" : "white@0.6";
   const dur = totalDurationS.toFixed(3);
+  // Watermark: fully opaque for free tier, subtle for pro (always present as branding)
+  const wmColor = watermark ? "white" : "white@0.5";
 
   if (isPip) {
-    // Output: 1920×1080. Content area: 1920×1044. Brand bar: 1920×36 at bottom.
-    const pipW = 480; // 25% of canvas width, 16:9
-    const pipH = 270;
-    filters.push(`[ytv]scale=1920:1044:force_original_aspect_ratio=decrease,pad=1920:1044:(ow-iw)/2:(oh-ih)/2:${BRAND_HEX}[bg]`);
-    filters.push(`[1:v]scale=${pipW}:${pipH}:force_original_aspect_ratio=decrease,pad=${pipW}:${pipH}:(ow-iw)/2:(oh-ih)/2:${BRAND_HEX}[pip]`);
+    // Canvas: 1920×1080 brand color
+    // YouTube: 1485×835 at (65, 65) — top-left, 65 px margin
+    // Webcam:  674×380 at corner, 65 px margin from edges
+    filters.push(`[ytv]scale=1485:835:force_original_aspect_ratio=increase,crop=1485:835[yt_s]`);
+    filters.push(`[1:v]scale=674:380:force_original_aspect_ratio=increase,crop=674:380[wc_s]`);
+    filters.push(`color=c=${BRAND_HEX}:s=1920x1080:d=${dur}[canvas]`);
+    filters.push(`[canvas][yt_s]overlay=65:65[with_yt]`);
 
-    let overlayPos: string;
+    // Webcam corner positions (65 px margin; canvas 1920×1080, webcam 674×380)
+    // right edge: 1920 - 65 - 674 = 1181  |  bottom edge: 1080 - 65 - 380 = 635
+    let wcX: string;
+    let wcY: string;
     switch (layout) {
-      case "pip-bottom-right": overlayPos = "W-w-16:H-h-16"; break;
-      case "pip-bottom-left":  overlayPos = "16:H-h-16"; break;
-      case "pip-top-right":    overlayPos = "W-w-16:16"; break;
-      case "pip-top-left":     overlayPos = "16:16"; break;
-      default:                 overlayPos = "W-w-16:H-h-16";
+      case "pip-bottom-right": wcX = "1181"; wcY = "635"; break;
+      case "pip-bottom-left":  wcX = "65";   wcY = "635"; break;
+      case "pip-top-right":    wcX = "1181"; wcY = "65";  break;
+      case "pip-top-left":     wcX = "65";   wcY = "65";  break;
+      default:                 wcX = "1181"; wcY = "635";
     }
+    filters.push(`[with_yt][wc_s]overlay=${wcX}:${wcY}[vid_comp]`);
 
-    filters.push(`[bg][pip]overlay=${overlayPos}[vidcomp]`);
-    filters.push(`color=c=${BRAND_COLOR}:s=1920x${BRAND_BAR_H}:d=${dur}[brand_bar]`);
-    filters.push(`[brand_bar]drawtext=text='${BRAND_TEXT}':fontsize=16:fontcolor=${alpha}:x=(w-text_w)/2:y=(h-text_h)/2[brand_text]`);
-    filters.push(`[vidcomp][brand_text]vstack=inputs=2[outv]`);
+    // Watermark text in the bottom-left brand color strip (below YouTube at y≈900, left of webcam)
+    filters.push(
+      `[vid_comp]drawtext=text='${BRAND_TEXT}':fontsize=20:fontcolor=${wmColor}:x=70:y=1023[outv]`
+    );
 
   } else if (layout === "side-by-side") {
-    // Output: 1920×1080. Slots: 960×1044 each. Brand bar: 1920×36 at bottom.
-    filters.push(`[ytv]scale=960:1044:force_original_aspect_ratio=decrease,pad=960:1044:(ow-iw)/2:(oh-ih)/2:${BRAND_HEX}[left]`);
-    filters.push(`[1:v]scale=960:1044:force_original_aspect_ratio=decrease,pad=960:1044:(ow-iw)/2:(oh-ih)/2:${BRAND_HEX}[right]`);
-    filters.push(`[left][right]hstack=inputs=2[vidcomp]`);
-    filters.push(`color=c=${BRAND_COLOR}:s=1920x${BRAND_BAR_H}:d=${dur}[brand_bar]`);
-    filters.push(`[brand_bar]drawtext=text='${BRAND_TEXT}':fontsize=16:fontcolor=${alpha}:x=(w-text_w)/2:y=(h-text_h)/2[brand_text]`);
-    filters.push(`[vidcomp][brand_text]vstack=inputs=2[outv]`);
+    // Canvas: 1920×1080 brand color
+    // YouTube: 930×540 center-crop, at (0, 270)   — flush left, centered vertically
+    // Webcam:  930×540 center-crop, at (990, 270)  — flush right, centered vertically
+    // Brand color visible: 60 px center divider (x=930–990), 270 px top/bottom borders
+    filters.push(`[ytv]scale=930:540:force_original_aspect_ratio=increase,crop=930:540[yt_s]`);
+    filters.push(`[1:v]scale=930:540:force_original_aspect_ratio=increase,crop=930:540[wc_s]`);
+    filters.push(`color=c=${BRAND_HEX}:s=1920x1080:d=${dur}[canvas]`);
+    filters.push(`[canvas][yt_s]overlay=0:270[with_yt]`);
+    filters.push(`[with_yt][wc_s]overlay=990:270[vid_comp]`);
+
+    // Watermark text centered in the bottom border (y≈945, center of the 270 px bottom strip)
+    filters.push(
+      `[vid_comp]drawtext=text='${BRAND_TEXT}':fontsize=20:fontcolor=${wmColor}:x=(w-text_w)/2:y=945[outv]`
+    );
 
   } else {
-    // stacked — Output: 1080×1920. Slots: 1080×942 each. Brand bar: 1080×36 in middle.
-    // 942 + 36 + 942 = 1920 ✓
-    filters.push(`[ytv]scale=1080:942:force_original_aspect_ratio=decrease,pad=1080:942:(ow-iw)/2:(oh-ih)/2:${BRAND_HEX}[top]`);
-    filters.push(`[1:v]scale=1080:942:force_original_aspect_ratio=decrease,pad=1080:942:(ow-iw)/2:(oh-ih)/2:${BRAND_HEX}[bottom]`);
-    filters.push(`color=c=${BRAND_COLOR}:s=1080x${BRAND_BAR_H}:d=${dur}[brand_bar]`);
-    filters.push(`[brand_bar]drawtext=text='${BRAND_TEXT}':fontsize=16:fontcolor=${alpha}:x=(w-text_w)/2:y=(h-text_h)/2[brand_text]`);
-    filters.push(`[top][brand_text][bottom]vstack=inputs=3[outv]`);
+    // stacked — Canvas: 1080×1920 brand color
+    // YouTube: 1080×920 center-crop, at (0, 0)    — flush top
+    // Webcam:  1080×920 center-crop, at (0, 1000) — flush bottom (920 + 80 gap = 1000)
+    // Brand color visible: 80 px horizontal bar at y=920–1000 (vertical middle)
+    filters.push(`[ytv]scale=1080:920:force_original_aspect_ratio=increase,crop=1080:920[yt_s]`);
+    filters.push(`[1:v]scale=1080:920:force_original_aspect_ratio=increase,crop=1080:920[wc_s]`);
+    filters.push(`color=c=${BRAND_HEX}:s=1080x1920:d=${dur}[canvas]`);
+    filters.push(`[canvas][yt_s]overlay=0:0[with_yt]`);
+    filters.push(`[with_yt][wc_s]overlay=0:1000[vid_comp]`);
+
+    // Watermark text centered in the 80 px middle bar (center = y=960)
+    filters.push(
+      `[vid_comp]drawtext=text='${BRAND_TEXT}':fontsize=20:fontcolor=${wmColor}:x=(w-text_w)/2:y=940[outv]`
+    );
   }
 
   return filters.join(";\n");
