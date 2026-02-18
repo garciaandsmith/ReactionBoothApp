@@ -220,7 +220,7 @@ export default function WatchPlayer({
       return {
         backgroundColor: "#6366f1",
         aspectRatio: "9/16",
-        maxHeight: "calc(100vh - 14rem)",
+        height: "calc(100vh - 14rem)",
       };
     }
     return {
