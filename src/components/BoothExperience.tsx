@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import Image from "next/image";
 import DualRecorder from "./DualRecorder";
 import type { ReactionEventLog } from "@/lib/types";
 
@@ -60,20 +61,13 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
   if (step === "welcome") {
     return (
       <div className="max-w-lg mx-auto text-center py-12 px-4">
-        <div className="w-20 h-20 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <svg
-            width="36"
-            height="36"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#6366f1"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polygon points="5 3 19 12 5 21 5 3" />
-          </svg>
-        </div>
+        <Image
+          src="/assets/mascotsmile.svg"
+          alt="Smiling mascot welcoming you"
+          width={96}
+          height={96}
+          className="mx-auto mb-6"
+        />
         <h1 className="text-2xl font-bold text-gray-900 mb-3">
           You&apos;ve been invited to a Reaction Booth!
         </h1>
@@ -81,9 +75,9 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
           Someone wants to see your reaction to a video.
         </p>
         {reaction.introMessage && (
-          <div className="bg-indigo-50 rounded-xl p-4 mb-6 text-left">
+          <div className="bg-brand-50 rounded-xl p-4 mb-6 text-left">
             <p className="text-sm text-gray-500 mb-1">Their message:</p>
-            <p className="text-indigo-700 italic">
+            <p className="text-soft-black italic">
               &ldquo;{reaction.introMessage}&rdquo;
             </p>
           </div>
@@ -107,7 +101,7 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
             Here&apos;s how it works:
           </h3>
           <div className="flex items-start gap-3">
-            <span className="w-6 h-6 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
+            <span className="w-6 h-6 bg-brand-100 text-soft-black rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
               1
             </span>
             <p className="text-sm text-gray-600">
@@ -116,7 +110,7 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
             </p>
           </div>
           <div className="flex items-start gap-3">
-            <span className="w-6 h-6 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
+            <span className="w-6 h-6 bg-brand-100 text-soft-black rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
               2
             </span>
             <p className="text-sm text-gray-600">
@@ -125,7 +119,7 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
             </p>
           </div>
           <div className="flex items-start gap-3">
-            <span className="w-6 h-6 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
+            <span className="w-6 h-6 bg-brand-100 text-soft-black rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
               3
             </span>
             <p className="text-sm text-gray-600">
@@ -137,7 +131,7 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
 
         <button
           onClick={() => setStep("recording")}
-          className="bg-indigo-500 text-white px-8 py-3 rounded-xl font-medium hover:bg-indigo-600 transition-colors"
+          className="bg-brand text-soft-black px-8 py-3 rounded-xl font-medium hover:bg-brand-600 transition-colors"
         >
           Let&apos;s Go!
         </button>
@@ -172,7 +166,14 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
   if (step === "uploading") {
     return (
       <div className="max-w-md mx-auto text-center py-20 px-4">
-        <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-500 rounded-full animate-spin mx-auto mb-6" />
+        <Image
+          src="/assets/mascotooh.svg"
+          alt="Excited mascot"
+          width={80}
+          height={80}
+          className="mx-auto mb-4"
+        />
+        <div className="w-16 h-16 border-4 border-brand-100 border-t-brand rounded-full animate-spin mx-auto mb-6" />
         <h2 className="text-xl font-semibold text-gray-900 mb-2">
           Uploading your reaction...
         </h2>
@@ -181,7 +182,7 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
         </p>
         <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
           <div
-            className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+            className="h-full bg-brand rounded-full transition-all duration-500"
             style={{ width: `${uploadProgress}%` }}
           />
         </div>
@@ -193,20 +194,13 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
   // done
   return (
     <div className="max-w-md mx-auto text-center py-20 px-4">
-      <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-        <svg
-          width="36"
-          height="36"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="#22c55e"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-      </div>
+      <Image
+        src="/assets/mascotjoy.svg"
+        alt="Celebrating mascot"
+        width={96}
+        height={96}
+        className="mx-auto mb-6"
+      />
       <h1 className="text-2xl font-bold text-gray-900 mb-3">
         Reaction recorded!
       </h1>
@@ -216,7 +210,7 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
       </p>
       <a
         href="/"
-        className="text-indigo-500 font-medium hover:text-indigo-600 transition-colors"
+        className="text-brand font-medium hover:text-brand-600 transition-colors"
       >
         Back to ReactionBooth
       </a>

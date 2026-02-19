@@ -1,12 +1,13 @@
 import Link from "next/link";
+import Image from "next/image";
 
 export default function Home() {
   return (
     <div>
       {/* Hero */}
       <section className="max-w-5xl mx-auto px-4 pt-20 pb-16 text-center">
-        <div className="inline-flex items-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-1.5 rounded-full text-sm font-medium mb-8">
-          <span className="w-2 h-2 bg-indigo-400 rounded-full" />
+        <div className="inline-flex items-center gap-2 bg-brand-50 text-soft-black px-4 py-1.5 rounded-full text-sm font-medium mb-8">
+          <span className="w-2 h-2 bg-brand-400 rounded-full" />
           No editing skills required
         </div>
         <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-900 mb-6 text-balance leading-tight">
@@ -22,7 +23,7 @@ export default function Home() {
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link
             href="/dashboard"
-            className="bg-indigo-500 text-white px-8 py-3.5 rounded-xl font-medium hover:bg-indigo-600 transition-colors text-lg"
+            className="bg-brand text-soft-black px-8 py-3.5 rounded-xl font-medium hover:bg-brand-600 transition-colors text-lg"
           >
             Create a Reaction
           </Link>
@@ -48,13 +49,13 @@ export default function Home() {
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="text-center">
-            <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
+            <div className="w-14 h-14 bg-brand-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
               <svg
                 width="24"
                 height="24"
                 viewBox="0 0 24 24"
                 fill="none"
-                stroke="#6366f1"
+                stroke="#2EE6A6"
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -72,13 +73,13 @@ export default function Home() {
             </p>
           </div>
           <div className="text-center">
-            <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
+            <div className="w-14 h-14 bg-brand-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
               <svg
                 width="24"
                 height="24"
                 viewBox="0 0 24 24"
                 fill="none"
-                stroke="#6366f1"
+                stroke="#2EE6A6"
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -99,13 +100,13 @@ export default function Home() {
             </p>
           </div>
           <div className="text-center">
-            <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
+            <div className="w-14 h-14 bg-brand-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
               <svg
                 width="24"
                 height="24"
                 viewBox="0 0 24 24"
                 fill="none"
-                stroke="#6366f1"
+                stroke="#2EE6A6"
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -160,7 +161,7 @@ export default function Home() {
                   height="22"
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke="#6366f1"
+                  stroke="#2EE6A6"
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -209,7 +210,7 @@ export default function Home() {
                     height="16"
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke="#6366f1"
+                    stroke="#2EE6A6"
                     strokeWidth="2.5"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -227,15 +228,15 @@ export default function Home() {
               Get Started
             </Link>
           </div>
-          <div className="bg-indigo-500 rounded-2xl p-8 text-white relative overflow-hidden">
-            <div className="absolute top-4 right-4 bg-white/20 backdrop-blur-sm text-xs font-medium px-3 py-1 rounded-full">
+          <div className="bg-brand rounded-2xl p-8 relative overflow-hidden">
+            <div className="absolute top-4 right-4 bg-soft-black/20 backdrop-blur-sm text-xs font-medium px-3 py-1 rounded-full text-soft-black">
               Popular
             </div>
-            <h3 className="text-lg font-semibold mb-1">Pro</h3>
-            <p className="text-indigo-200 text-sm mb-6">For power users</p>
-            <p className="text-3xl font-bold mb-6">
+            <h3 className="text-lg font-semibold text-soft-black mb-1">Pro</h3>
+            <p className="text-soft-black/60 text-sm mb-6">For power users</p>
+            <p className="text-3xl font-bold text-soft-black mb-6">
               $9
-              <span className="text-base font-normal text-indigo-200">
+              <span className="text-base font-normal text-soft-black/60">
                 /month
               </span>
             </p>
@@ -251,14 +252,14 @@ export default function Home() {
               ].map((f) => (
                 <li
                   key={f}
-                  className="flex items-center gap-3 text-sm text-indigo-100"
+                  className="flex items-center gap-3 text-sm text-soft-black/80"
                 >
                   <svg
                     width="16"
                     height="16"
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke="white"
+                    stroke="#121212"
                     strokeWidth="2.5"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -269,7 +270,7 @@ export default function Home() {
                 </li>
               ))}
             </ul>
-            <button className="block w-full text-center bg-white text-indigo-600 py-3 rounded-xl font-medium hover:bg-indigo-50 transition-colors">
+            <button className="block w-full text-center bg-soft-black text-white py-3 rounded-xl font-medium hover:bg-soft-black/80 transition-colors">
               Upgrade to Pro
             </button>
           </div>
@@ -279,6 +280,13 @@ export default function Home() {
       {/* CTA */}
       <section className="bg-white border-t border-gray-100">
         <div className="max-w-5xl mx-auto px-4 py-20 text-center">
+          <Image
+            src="/assets/mascotjoy.svg"
+            alt="Celebrating mascot"
+            width={96}
+            height={96}
+            className="mx-auto mb-6"
+          />
           <h2 className="text-3xl font-bold text-gray-900 mb-4">
             &ldquo;I wish I could see your face when you watch this.&rdquo;
           </h2>
@@ -287,7 +295,7 @@ export default function Home() {
           </p>
           <Link
             href="/dashboard"
-            className="inline-block bg-indigo-500 text-white px-8 py-3.5 rounded-xl font-medium hover:bg-indigo-600 transition-colors text-lg"
+            className="inline-block bg-brand text-soft-black px-8 py-3.5 rounded-xl font-medium hover:bg-brand-600 transition-colors text-lg"
           >
             Create a Reaction
           </Link>
