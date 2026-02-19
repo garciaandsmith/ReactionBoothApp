@@ -24,9 +24,7 @@ interface TimelineSegment {
   ytEndS: number;
 }
 
-const BRAND_BAR_H = 36;
-const BRAND_COLOR = "#6366f1";
-const BRAND_HEX = "0x6366f1"; // ffmpeg pad-filter format (no #)
+const BRAND_HEX = "0x2EE6A6"; // ffmpeg pad-filter format (no #)
 const BRAND_TEXT = "ReactionBooth";
 
 async function commandExists(cmd: string): Promise<boolean> {

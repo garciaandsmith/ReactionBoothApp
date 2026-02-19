@@ -73,7 +73,7 @@ export default function BoothCard({ reaction }: BoothCardProps) {
           {reaction.status === "completed" && reaction.recordingUrl ? (
             <Link
               href={`/watch/${reaction.id}`}
-              className="flex-1 text-center bg-indigo-50 text-indigo-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors"
+              className="flex-1 text-center bg-brand-50 text-soft-black px-3 py-2 rounded-lg text-sm font-medium hover:bg-brand-100 transition-colors"
             >
               Watch
             </Link>

@@ -47,7 +47,7 @@ export default function DashboardPage() {
   if (authStatus === "loading") {
     return (
       <div className="max-w-4xl mx-auto px-4 py-20 text-center">
-        <div className="w-8 h-8 border-2 border-gray-200 border-t-indigo-500 rounded-full animate-spin mx-auto" />
+        <div className="w-8 h-8 border-2 border-gray-200 border-t-brand rounded-full animate-spin mx-auto" />
       </div>
     );
   }
@@ -63,7 +63,7 @@ export default function DashboardPage() {
         </p>
         <Link
           href="/api/auth/signin"
-          className="inline-block bg-indigo-500 text-white px-8 py-3 rounded-xl font-medium hover:bg-indigo-600 transition-colors"
+          className="inline-block bg-brand text-soft-black px-8 py-3 rounded-xl font-medium hover:bg-brand-600 transition-colors"
         >
           Sign In
         </Link>
@@ -96,7 +96,7 @@ export default function DashboardPage() {
         </h2>
         {loading ? (
           <div className="text-center py-12">
-            <div className="w-8 h-8 border-2 border-gray-200 border-t-indigo-500 rounded-full animate-spin mx-auto" />
+            <div className="w-8 h-8 border-2 border-gray-200 border-t-brand rounded-full animate-spin mx-auto" />
           </div>
         ) : reactions.length === 0 ? (
           <div className="text-center py-12 bg-white rounded-2xl border border-gray-200">

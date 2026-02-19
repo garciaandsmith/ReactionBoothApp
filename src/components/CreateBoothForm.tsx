@@ -96,7 +96,7 @@ export default function CreateBoothForm({ onCreated }: CreateBoothFormProps) {
                 />
                 <button
                   onClick={copyLink}
-                  className="bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-600 transition-colors whitespace-nowrap"
+                  className="bg-brand text-soft-black px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors whitespace-nowrap"
                 >
                   {copied ? "Copied!" : "Copy"}
                 </button>
@@ -130,7 +130,7 @@ export default function CreateBoothForm({ onCreated }: CreateBoothFormProps) {
             value={videoUrl}
             onChange={(e) => setVideoUrl(e.target.value)}
             disabled={!!result}
-            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-brand focus:ring-2 focus:ring-brand-100 outline-none transition-all text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
           />
           {videoId && (
             <div className="mt-3 rounded-xl overflow-hidden border border-gray-200">
@@ -160,7 +160,7 @@ export default function CreateBoothForm({ onCreated }: CreateBoothFormProps) {
             rows={2}
             maxLength={500}
             disabled={!!result}
-            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all resize-none text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-brand focus:ring-2 focus:ring-brand-100 outline-none transition-all resize-none text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
           />
         </div>
 
@@ -173,7 +173,7 @@ export default function CreateBoothForm({ onCreated }: CreateBoothFormProps) {
         <button
           type="submit"
           disabled={loading || !!result}
-          className="w-full bg-indigo-500 text-white py-3 px-6 rounded-xl font-medium hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full bg-brand text-soft-black py-3 px-6 rounded-xl font-medium hover:bg-brand-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
             <span className="flex items-center justify-center gap-2">
