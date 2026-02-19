@@ -266,6 +266,26 @@ export default function WatchPlayer({
     };
   };
 
+  // Cover-crop simulation for the YouTube iframe.
+  // The YouTube player always renders its video in 16:9 inside the iframe; when the
+  // panel isn't 16:9 it letterboxes. We scale the iframe wider than the panel and
+  // centre it so the video fills the panel height, then rely on the panel's
+  // overflow:hidden to clip the sides — the CSS equivalent of object-fit:cover.
+  const getYouTubeCoverStyle = (): React.CSSProperties => {
+    if (isStacked) {
+      // Panel aspect ≈ (9/16) / 0.47917 = 1.1739; video 16/9 = 1.7778
+      // scale = 1.7778 / 1.1739 = 1.5143  →  151.43 % wide, left: -25.71 %
+      return { position: "absolute", top: 0, height: "100%", width: "151.43%", left: "-25.71%" };
+    }
+    if (selectedLayout === "side-by-side") {
+      // Panel aspect ≈ (930/1920) / (540/1080) = 0.48438 / 0.28125 = 1.7222
+      // scale = 1.7778 / 1.7222 = 1.0323  →  103.23 % wide, left: -1.61 %
+      return { position: "absolute", top: 0, height: "100%", width: "103.23%", left: "-1.61%" };
+    }
+    // PIP: panel is ~16:9 (1485×835), no cropping needed
+    return { position: "absolute", inset: 0 };
+  };
+
   // Webcam panel — absolute, proportional to output dimensions
   const getWebcamContainerStyle = (): React.CSSProperties => {
     if (isPip) {
@@ -353,13 +373,17 @@ export default function WatchPlayer({
             <div className={getPreviewContainerClassName()} style={getPreviewContainerStyle()}>
               {/* YouTube panel */}
               <div style={getYouTubeContainerStyle()}>
-                <YouTubePlayer
-                  ref={youtubeRef}
-                  videoUrl={reaction.videoUrl}
-                  controlledMode={true}
-                  onReady={() => setYoutubeReady(true)}
-                  className="relative w-full h-full bg-black overflow-hidden"
-                />
+                {/* Cover-crop wrapper: scales the 16:9 iframe to fill the panel
+                    height, clipped by the panel's overflow:hidden */}
+                <div style={getYouTubeCoverStyle()}>
+                  <YouTubePlayer
+                    ref={youtubeRef}
+                    videoUrl={reaction.videoUrl}
+                    controlledMode={true}
+                    onReady={() => setYoutubeReady(true)}
+                    className="relative w-full h-full bg-black overflow-hidden"
+                  />
+                </div>
               </div>
 
               {/* Webcam panel */}
