@@ -26,6 +26,8 @@ interface YouTubePlayerProps {
   controlledMode?: boolean;
   onStateChange?: (state: number, videoTime: number) => void;
   onReady?: () => void;
+  /** Override root div className. Defaults to standalone card style with aspect-video. */
+  className?: string;
 }
 
 // Module-level: shared promise for loading the YouTube IFrame API script once
@@ -57,7 +59,7 @@ function loadYouTubeApi(): Promise<void> {
 }
 
 const YouTubePlayer = forwardRef<YouTubePlayerHandle, YouTubePlayerProps>(
-  function YouTubePlayer({ videoUrl, controlledMode, onStateChange, onReady }, ref) {
+  function YouTubePlayer({ videoUrl, controlledMode, onStateChange, onReady, className }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const playerRef = useRef<YT.Player | null>(null);
     const [isReady, setIsReady] = useState(false);
@@ -137,7 +139,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerHandle, YouTubePlayerProps>(
     }
 
     return (
-      <div className="relative aspect-video bg-black rounded-2xl overflow-hidden">
+      <div className={className ?? "relative aspect-video bg-black rounded-2xl overflow-hidden"}>
         <div ref={containerRef} className="absolute inset-0 w-full h-full" />
 
         {controlledMode && isReady && (
