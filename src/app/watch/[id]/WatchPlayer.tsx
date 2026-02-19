@@ -358,6 +358,7 @@ export default function WatchPlayer({
                   videoUrl={reaction.videoUrl}
                   controlledMode={true}
                   onReady={() => setYoutubeReady(true)}
+                  className="relative w-full h-full bg-black overflow-hidden"
                 />
               </div>
 
