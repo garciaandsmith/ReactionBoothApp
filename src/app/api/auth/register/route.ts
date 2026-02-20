@@ -4,6 +4,12 @@ import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import { sendVerificationEmail } from "@/lib/email";
 
+const smtpConfigured = !!(
+  process.env.SMTP_HOST &&
+  process.env.SMTP_HOST !== "smtp.example.com" &&
+  process.env.SMTP_USER
+);
+
 export async function POST(request: NextRequest) {
   try {
     const { email, password, name } = await request.json();
@@ -32,22 +38,33 @@ export async function POST(request: NextRequest) {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
+    // If SMTP is not configured, mark the account as already verified
+    // so the user can sign in straight away without waiting for an email.
     const user = await prisma.user.create({
-      data: { email, passwordHash, name: name || null },
+      data: {
+        email,
+        passwordHash,
+        name: name || null,
+        emailVerified: smtpConfigured ? null : new Date(),
+      },
     });
 
-    // Create email verification token and send
-    const token = uuidv4();
-    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-    await prisma.verificationToken.create({
-      data: { identifier: email, token, expires },
+    if (smtpConfigured) {
+      const token = uuidv4();
+      const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      await prisma.verificationToken.create({
+        data: { identifier: email, token, expires },
+      });
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+      const verifyUrl = `${baseUrl}/auth/verify-email?token=${token}&email=${encodeURIComponent(email)}`;
+      await sendVerificationEmail(email, verifyUrl);
+    }
+
+    return NextResponse.json({
+      id: user.id,
+      email: user.email,
+      emailVerificationRequired: smtpConfigured,
     });
-
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const verifyUrl = `${baseUrl}/auth/verify-email?token=${token}&email=${encodeURIComponent(email)}`;
-    await sendVerificationEmail(email, verifyUrl);
-
-    return NextResponse.json({ id: user.id, email: user.email });
   } catch (error) {
     console.error("Registration error:", error);
     return NextResponse.json(

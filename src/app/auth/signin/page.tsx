@@ -34,8 +34,21 @@ export default function SignInPage() {
           setLoading(false);
           return;
         }
-        // Show "check your email" state
-        setMode("registered");
+        if (data.emailVerificationRequired) {
+          // SMTP is configured — user must verify email before signing in
+          setMode("registered");
+          setLoading(false);
+          return;
+        }
+        // No SMTP — account is pre-verified; sign in immediately
+        const result = await signIn("credentials", { email, password, redirect: false });
+        if (result?.error) {
+          setError("Account created but sign-in failed. Please sign in manually.");
+          setMode("signin");
+        } else {
+          router.push("/dashboard");
+          router.refresh();
+        }
         setLoading(false);
         return;
       }
