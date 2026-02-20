@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
-import { v4 as uuidv4 } from "uuid";
-import { sendVerificationEmail } from "@/lib/email";
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password, name } = await request.json();
+    const { email, password } = await request.json();
 
     if (!email || !password) {
       return NextResponse.json(
@@ -22,7 +20,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const existing = await prisma.user.findUnique({
+      where: { email },
+    });
+
     if (existing) {
       return NextResponse.json(
         { error: "An account with this email already exists" },
@@ -33,19 +34,8 @@ export async function POST(request: NextRequest) {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const user = await prisma.user.create({
-      data: { email, passwordHash, name: name || null },
+      data: { email, passwordHash },
     });
-
-    // Create email verification token and send
-    const token = uuidv4();
-    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-    await prisma.verificationToken.create({
-      data: { identifier: email, token, expires },
-    });
-
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const verifyUrl = `${baseUrl}/auth/verify-email?token=${token}&email=${encodeURIComponent(email)}`;
-    await sendVerificationEmail(email, verifyUrl);
 
     return NextResponse.json({ id: user.id, email: user.email });
   } catch (error) {
