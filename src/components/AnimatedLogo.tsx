@@ -137,20 +137,18 @@ export default function AnimatedLogo({
       </g>
 
       {/* ── Animated eyes inside the O's of "BOOTH" ── */}
-      {/* Fixed white sclera */}
+      {/* White sclera — simulates the transparent hole of each O */}
       <circle cx={EYE1_CX} cy={EYE1_CY} r="25.4" fill="#f7f9f8" />
       <circle cx={EYE3_CX} cy={EYE3_CY} r="25.4" fill="#f7f9f8" />
 
-      {/* Eye 1: iris + pupil group — translated by animation */}
+      {/* Eye 1: pupil only — the O hole IS the eye, the dark dot moves within it */}
       <g ref={eye1GRef}>
-        <circle cx={EYE1_CX} cy={EYE1_CY} r="12" fill="#2ee6a6" />
-        <circle cx={EYE1_CX} cy={EYE1_CY} r="5" fill="#121212" />
+        <circle cx={EYE1_CX} cy={EYE1_CY} r="7" fill="#121212" />
       </g>
 
-      {/* Eye 3: iris + pupil group — translated by animation */}
+      {/* Eye 3: pupil only */}
       <g ref={eye3GRef}>
-        <circle cx={EYE3_CX} cy={EYE3_CY} r="12" fill="#2ee6a6" />
-        <circle cx={EYE3_CX} cy={EYE3_CY} r="5" fill="#121212" />
+        <circle cx={EYE3_CX} cy={EYE3_CY} r="7" fill="#121212" />
       </g>
     </svg>
   );

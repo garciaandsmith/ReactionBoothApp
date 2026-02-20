@@ -48,6 +48,60 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+/* ── Hero background animation ── */
+
+@keyframes blob-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25%       { transform: translate(35px, -55px) scale(1.12); }
+  50%       { transform: translate(-20px, 40px) scale(0.88); }
+  75%       { transform: translate(50px, 15px) scale(1.06); }
+}
+
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.hero-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  opacity: 0.14;
+  animation: blob-drift ease-in-out infinite;
+}
+
+.hero-blob-1 {
+  width: 480px;
+  height: 480px;
+  background: #2EE6A6;
+  top: -160px;
+  left: -120px;
+  animation-duration: 11s;
+}
+
+.hero-blob-2 {
+  width: 360px;
+  height: 360px;
+  background: #2EE6A6;
+  top: -60px;
+  right: -100px;
+  animation-duration: 14s;
+  animation-delay: -5s;
+}
+
+.hero-blob-3 {
+  width: 260px;
+  height: 260px;
+  background: #5aedb9;
+  bottom: 0;
+  left: 38%;
+  animation-duration: 17s;
+  animation-delay: -9s;
+}
+
 /* ── Mascot animations ── */
 
 /* mascotsmile: gentle, friendly float */
