@@ -218,13 +218,13 @@ export default function WatchPlayer({
   const getPreviewContainerStyle = (): React.CSSProperties => {
     if (isStacked) {
       return {
-        backgroundColor: "#6366f1",
+        backgroundColor: "#2EE6A6",
         aspectRatio: "9/16",
         height: "calc(100vh - 14rem)",
       };
     }
     return {
-      backgroundColor: "#6366f1",
+      backgroundColor: "#2EE6A6",
       aspectRatio: "16/9",
     };
   };
@@ -412,7 +412,7 @@ export default function WatchPlayer({
                   onClick={() => setSelectedLayout(l)}
                   className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-colors ${
                     selectedLayout === l
-                      ? "border-indigo-500 bg-indigo-50"
+                      ? "border-brand bg-brand-50"
                       : "border-gray-200 bg-white hover:border-gray-300"
                   }`}
                 >
@@ -420,7 +420,7 @@ export default function WatchPlayer({
                   <span
                     className={`text-[10px] leading-tight text-center ${
                       selectedLayout === l
-                        ? "text-indigo-700 font-semibold"
+                        ? "text-brand-700 font-semibold"
                         : "text-gray-500"
                     }`}
                   >
@@ -457,7 +457,7 @@ export default function WatchPlayer({
             className={`px-6 py-3 rounded-xl font-medium transition-colors ${
               downloadUsed
                 ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                : "bg-indigo-500 text-white hover:bg-indigo-600"
+                : "bg-brand text-soft-black hover:bg-brand-600"
             }`}
           >
             {downloadUsed
@@ -471,7 +471,7 @@ export default function WatchPlayer({
         {/* Compositing in progress */}
         {downloadState.status === "composing" && (
           <div className="bg-gray-50 rounded-2xl p-6 w-full max-w-md text-center">
-            <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-500 rounded-full animate-spin mx-auto mb-4" />
+            <div className="w-12 h-12 border-4 border-brand-100 border-t-brand rounded-full animate-spin mx-auto mb-4" />
             <h3 className="font-semibold text-gray-900 mb-1">
               Composing your video...
             </h3>
@@ -546,7 +546,7 @@ export default function WatchPlayer({
           This video includes a ReactionBooth watermark.{" "}
           <a
             href="/#pricing"
-            className="text-indigo-400 hover:text-indigo-500"
+            className="text-brand hover:text-brand-600"
           >
             Upgrade to Pro
           </a>{" "}
@@ -566,8 +566,8 @@ function LayoutIcon({
   layout: WatchLayout;
   active: boolean;
 }) {
-  const bg = active ? "bg-indigo-400" : "bg-gray-600";
-  const fg = active ? "bg-indigo-300" : "bg-gray-400";
+  const bg = active ? "bg-brand" : "bg-gray-600";
+  const fg = active ? "bg-brand-400" : "bg-gray-400";
 
   if (layout.startsWith("pip-")) {
     const posMap: Record<string, string> = {
@@ -597,7 +597,7 @@ function LayoutIcon({
   return (
     <div className="w-12 h-8 rounded flex flex-col overflow-hidden gap-px">
       <div className={`flex-1 ${bg}`} />
-      <div className="h-0.5 bg-indigo-500" />
+      <div className="h-0.5 bg-brand" />
       <div className={`flex-1 ${fg}`} />
     </div>
   );
@@ -623,7 +623,7 @@ function VolumeSlider({
         max={200}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand"
       />
       <span className="text-sm text-gray-500 w-12 text-right tabular-nums">
         {value}%

@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
+import AnimatedLogo from "./AnimatedLogo";
 
 export default function Header() {
   const { data: session } = useSession();
@@ -11,13 +11,7 @@ export default function Header() {
     <header className="border-b border-muted-gray bg-white/80 backdrop-blur-sm sticky top-0 z-50">
       <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
-          <Image
-            src="/assets/ReactionBoothLogo.svg"
-            alt="ReactionBooth"
-            width={180}
-            height={32}
-            priority
-          />
+          <AnimatedLogo width={180} height={32} />
         </Link>
 
         <nav className="flex items-center gap-6">

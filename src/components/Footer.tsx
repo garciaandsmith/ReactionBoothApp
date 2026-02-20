@@ -10,6 +10,7 @@ export default function Footer() {
             alt="ReactionBooth mascot"
             width={28}
             height={28}
+            className="mascot-float"
           />
           <p className="text-sm text-gray-400">
             ReactionBooth — Capture real reactions, effortlessly.
