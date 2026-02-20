@@ -27,6 +27,12 @@ type DownloadState =
   | { status: "ready"; url: string }
   | { status: "error"; message: string };
 
+function formatTime(s: number) {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
 export default function WatchPlayer({
   reaction,
   events,
@@ -44,25 +50,42 @@ export default function WatchPlayer({
     status: "idle",
   });
 
-  // Live preview state
+  // Custom player state
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isSeeking, setIsSeeking] = useState(false);
+
+  // Layout / volume state
   const [selectedLayout, setSelectedLayout] = useState<WatchLayout>(
     availableLayouts[0] ?? "pip-bottom-right"
   );
   const [ytVolume, setYtVolume] = useState(100);
   const [wcVolume, setWcVolume] = useState(100);
 
-  // --- Live volume control ---
+  // Live volume control
   useEffect(() => {
-    // YouTube API volume is 0-100; our slider is 0-200
     youtubeRef.current?.setVolume(Math.min(ytVolume, 100));
   }, [ytVolume, youtubeReady]);
 
   useEffect(() => {
     if (webcamRef.current) {
-      // HTML5 video.volume is 0.0-1.0; our slider is 0-200
       webcamRef.current.volume = Math.min(wcVolume / 100, 1.0);
     }
   }, [wcVolume]);
+
+  // Progress ticker
+  useEffect(() => {
+    const webcam = webcamRef.current;
+    if (!webcam) return;
+    let raf: number;
+    const tick = () => {
+      if (!isSeeking) setCurrentTime(webcam.currentTime);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [isSeeking]);
 
   // --- Synchronized playback ---
   const syncYouTubeToWebcam = useCallback(() => {
@@ -127,10 +150,12 @@ export default function WatchPlayer({
     if (!webcam || !events) return;
 
     const onPlay = () => {
+      setIsPlaying(true);
       syncYouTubeToWebcam();
       startSyncLoop();
     };
     const onPause = () => {
+      setIsPlaying(false);
       youtubeRef.current?.pause();
       stopSyncLoop();
     };
@@ -138,23 +163,67 @@ export default function WatchPlayer({
       syncYouTubeToWebcam();
     };
     const onEnded = () => {
+      setIsPlaying(false);
       youtubeRef.current?.pause();
       stopSyncLoop();
+    };
+    const onLoadedMetadata = () => {
+      setDuration(webcam.duration);
     };
 
     webcam.addEventListener("play", onPlay);
     webcam.addEventListener("pause", onPause);
     webcam.addEventListener("seeked", onSeeked);
     webcam.addEventListener("ended", onEnded);
+    webcam.addEventListener("loadedmetadata", onLoadedMetadata);
 
     return () => {
       webcam.removeEventListener("play", onPlay);
       webcam.removeEventListener("pause", onPause);
       webcam.removeEventListener("seeked", onSeeked);
       webcam.removeEventListener("ended", onEnded);
+      webcam.removeEventListener("loadedmetadata", onLoadedMetadata);
       stopSyncLoop();
     };
   }, [events, syncYouTubeToWebcam, startSyncLoop, stopSyncLoop]);
+
+  // No-events case: still track play/pause for the standalone video
+  useEffect(() => {
+    const webcam = webcamRef.current;
+    if (!webcam || events) return;
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+    const onEnded = () => setIsPlaying(false);
+    const onLoadedMetadata = () => setDuration(webcam.duration);
+    webcam.addEventListener("play", onPlay);
+    webcam.addEventListener("pause", onPause);
+    webcam.addEventListener("ended", onEnded);
+    webcam.addEventListener("loadedmetadata", onLoadedMetadata);
+    return () => {
+      webcam.removeEventListener("play", onPlay);
+      webcam.removeEventListener("pause", onPause);
+      webcam.removeEventListener("ended", onEnded);
+      webcam.removeEventListener("loadedmetadata", onLoadedMetadata);
+    };
+  }, [events]);
+
+  // Unified play/pause toggle
+  const togglePlay = useCallback(() => {
+    const webcam = webcamRef.current;
+    if (!webcam) return;
+    if (webcam.paused) {
+      webcam.play();
+    } else {
+      webcam.pause();
+    }
+  }, []);
+
+  // Seek via the progress bar
+  const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const t = Number(e.target.value);
+    setCurrentTime(t);
+    if (webcamRef.current) webcamRef.current.currentTime = t;
+  }, []);
 
   // --- Download with compositing ---
   const triggerCompose = useCallback(async () => {
@@ -206,15 +275,6 @@ export default function WatchPlayer({
   const isPip = selectedLayout.startsWith("pip-");
   const isStacked = selectedLayout === "stacked";
 
-  // --- Dynamic layout styles (no remount — same elements, different CSS) ---
-  // All layouts use a brand-color canvas with absolutely positioned video panels,
-  // mirroring the exact proportions of the FFmpeg output.
-
-  const getPreviewContainerClassName = () => {
-    // PIP + SBS: 16:9 landscape. Stacked: 9:16 portrait centred by wrapper.
-    return "relative overflow-hidden";
-  };
-
   const getPreviewContainerStyle = (): React.CSSProperties => {
     if (isStacked) {
       return {
@@ -229,55 +289,48 @@ export default function WatchPlayer({
     };
   };
 
-  // YouTube panel — absolute, proportional to output dimensions
   const getYouTubeContainerStyle = (): React.CSSProperties => {
     if (!hasEvents) return { display: "none" };
-
     if (isPip) {
-      // Output: YouTube at (65,65) sized 1485×835 on a 1920×1080 canvas
       return {
         position: "absolute",
-        left: "3.385%",   // 65/1920
-        top: "6.019%",    // 65/1080
-        width: "77.344%", // 1485/1920
-        height: "77.315%", // 835/1080
+        left: "3.385%",
+        top: "6.019%",
+        width: "77.344%",
+        height: "77.315%",
         overflow: "hidden",
       };
     }
     if (selectedLayout === "side-by-side") {
-      // Output: YouTube 930×540 at (0, 270) on 1920×1080
       return {
         position: "absolute",
         left: 0,
-        top: "25%",      // 270/1080
-        width: "48.438%", // 930/1920
-        height: "50%",   // 540/1080
+        top: "25%",
+        width: "48.438%",
+        height: "50%",
         overflow: "hidden",
       };
     }
-    // stacked: YouTube 1080×920 at (0,0) on 1080×1920
     return {
       position: "absolute",
       top: 0,
       left: 0,
       width: "100%",
-      height: "47.917%", // 920/1920
+      height: "47.917%",
       overflow: "hidden",
     };
   };
 
-  // Webcam panel — absolute, proportional to output dimensions
   const getWebcamContainerStyle = (): React.CSSProperties => {
     if (isPip) {
-      // Output: webcam 674×380 (≈35.1% wide) at corner with 65 px margin
       const base: React.CSSProperties = {
         position: "absolute",
-        width: "35.104%",  // 674/1920
+        width: "35.104%",
         aspectRatio: "16/9",
         overflow: "hidden",
         zIndex: 10,
       };
-      const margin = "3.385%"; // 65/1920 horizontal; 6.019% = 65/1080 vertical
+      const margin = "3.385%";
       const vMargin = "6.019%";
       switch (selectedLayout) {
         case "pip-bottom-right": return { ...base, right: margin, bottom: vMargin };
@@ -288,28 +341,25 @@ export default function WatchPlayer({
       }
     }
     if (selectedLayout === "side-by-side") {
-      // Output: webcam 930×540 at (990, 270) on 1920×1080
       return {
         position: "absolute",
-        left: "51.563%",  // 990/1920
-        top: "25%",       // 270/1080
-        width: "48.438%", // 930/1920
-        height: "50%",    // 540/1080
+        left: "51.563%",
+        top: "25%",
+        width: "48.438%",
+        height: "50%",
         overflow: "hidden",
       };
     }
-    // stacked: webcam 1080×920 at (0, 1000) on 1080×1920
     return {
       position: "absolute",
       bottom: 0,
       left: 0,
       width: "100%",
-      height: "47.917%", // 920/1920
+      height: "47.917%",
       overflow: "hidden",
     };
   };
 
-  // Watermark text overlay position within the brand-color visible area
   const getWatermarkStyle = (): React.CSSProperties => {
     const base: React.CSSProperties = {
       position: "absolute",
@@ -321,37 +371,25 @@ export default function WatchPlayer({
       letterSpacing: "0.04em",
       zIndex: 20,
     };
-    if (isStacked) {
-      // Middle brand bar: ~47.9%–52.1% of container height
-      return { ...base, top: "49.6%", left: "50%", transform: "translate(-50%, -50%)" };
-    }
-    if (selectedLayout === "side-by-side") {
-      // Bottom border area (below y=75% of container)
-      return { ...base, bottom: "3%", left: "50%", transform: "translateX(-50%)" };
-    }
-    // PIP: bottom-left strip of brand color (below YouTube at ~83%, left of webcam)
+    if (isStacked) return { ...base, top: "49.6%", left: "50%", transform: "translate(-50%, -50%)" };
+    if (selectedLayout === "side-by-side") return { ...base, bottom: "3%", left: "50%", transform: "translateX(-50%)" };
     return { ...base, bottom: "1.5%", left: "1.5%" };
   };
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Reaction Video
-        </h1>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Reaction Video</h1>
         <p className="text-gray-500">
-          {reaction.recipientEmail}&apos;s reaction to a video from{" "}
-          {reaction.senderEmail}
+          {reaction.recipientEmail}&apos;s reaction to a video from {reaction.senderEmail}
         </p>
       </div>
 
-      {/* Preview area — single set of elements, CSS-driven layout switching */}
+      {/* Preview */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2">
         {hasEvents ? (
-          /* Centering wrapper: centres the portrait box for stacked, no-op for others */
           <div className={isStacked ? "flex justify-center bg-black" : ""}>
-            <div className={getPreviewContainerClassName()} style={getPreviewContainerStyle()}>
-              {/* YouTube panel */}
+            <div className="relative overflow-hidden" style={getPreviewContainerStyle()}>
               <div style={getYouTubeContainerStyle()}>
                 <YouTubePlayer
                   ref={youtubeRef}
@@ -362,93 +400,146 @@ export default function WatchPlayer({
                 />
               </div>
 
-              {/* Webcam panel */}
               <div style={getWebcamContainerStyle()}>
+                {/* No mirror (scaleX removed), no native controls */}
                 <video
                   ref={webcamRef}
                   src={reaction.recordingUrl}
-                  controls
                   playsInline
                   className="w-full h-full object-cover"
-                  style={{ transform: "scaleX(-1)" }}
                 />
               </div>
 
-              {/* Watermark overlay — shown in the brand color visible areas */}
               {reaction.watermarked && (
                 <span style={getWatermarkStyle()}>ReactionBooth</span>
               )}
             </div>
           </div>
         ) : (
-          <video
-            ref={webcamRef}
-            src={reaction.recordingUrl}
-            controls
-            className="w-full aspect-video bg-black"
-          />
+          /* No event log — single webcam video, no mirror, no native controls */
+          <div className="relative">
+            <video
+              ref={webcamRef}
+              src={reaction.recordingUrl}
+              playsInline
+              className="w-full aspect-video bg-black"
+            />
+          </div>
         )}
+      </div>
+
+      {/* ── Unified player bar ── */}
+      <div className="bg-white rounded-xl border border-gray-200 px-4 py-3 mb-6 flex flex-col gap-2">
+        {/* Progress scrubber */}
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-400 tabular-nums w-10 text-right">
+            {formatTime(currentTime)}
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={duration || 1}
+            step={0.1}
+            value={currentTime}
+            onMouseDown={() => setIsSeeking(true)}
+            onMouseUp={() => setIsSeeking(false)}
+            onChange={handleSeek}
+            className="flex-1 h-1.5 bg-gray-200 rounded-full appearance-none cursor-pointer accent-brand"
+          />
+          <span className="text-xs text-gray-400 tabular-nums w-10">
+            {formatTime(duration)}
+          </span>
+        </div>
+
+        {/* Controls row */}
+        <div className="flex items-center justify-between">
+          {/* Play / Pause */}
+          <button
+            onClick={togglePlay}
+            className="w-10 h-10 flex items-center justify-center bg-brand hover:bg-brand-600 text-soft-black rounded-full transition-colors flex-shrink-0"
+            aria-label={isPlaying ? "Pause" : "Play"}
+          >
+            {isPlaying ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="6" y="4" width="4" height="16" rx="1" />
+                <rect x="14" y="4" width="4" height="16" rx="1" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="5,3 19,12 5,21" />
+              </svg>
+            )}
+          </button>
+
+          {/* Volume sliders (compact) */}
+          {hasEvents && (
+            <div className="flex items-center gap-4 flex-1 ml-4">
+              <CompactVolume
+                icon="yt"
+                label="YouTube"
+                value={ytVolume}
+                onChange={setYtVolume}
+              />
+              <CompactVolume
+                icon="cam"
+                label="Webcam"
+                value={wcVolume}
+                onChange={setWcVolume}
+              />
+            </div>
+          )}
+          {!hasEvents && (
+            <div className="flex items-center gap-2 ml-4">
+              <CompactVolume
+                icon="cam"
+                label="Volume"
+                value={wcVolume}
+                onChange={(v) => {
+                  setWcVolume(v);
+                  if (webcamRef.current) webcamRef.current.volume = Math.min(v / 100, 1.0);
+                }}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {hasEvents && (
         <p className="text-center text-xs text-gray-400 mb-6">
-          Press play on the reaction video to start synchronized playback.
-          Adjust layout and volume below — the preview updates live.
+          Press play above to start synchronized playback. Adjust layout and volume — the preview updates live.
         </p>
       )}
 
-      {/* Controls panel — always visible when there are events */}
+      {/* Layout chooser */}
       {hasEvents && (
         <div className="bg-gray-50 rounded-2xl border border-gray-200 p-6 mb-8">
-          {/* Layout chooser */}
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">
-              Layout
-            </h3>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-              {availableLayouts.map((l) => (
-                <button
-                  key={l}
-                  onClick={() => setSelectedLayout(l)}
-                  className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-colors ${
-                    selectedLayout === l
-                      ? "border-brand bg-brand-50"
-                      : "border-gray-200 bg-white hover:border-gray-300"
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Layout</h3>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+            {availableLayouts.map((l) => (
+              <button
+                key={l}
+                onClick={() => setSelectedLayout(l)}
+                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-colors ${
+                  selectedLayout === l
+                    ? "border-brand bg-brand-50"
+                    : "border-gray-200 bg-white hover:border-gray-300"
+                }`}
+              >
+                <LayoutIcon layout={l} active={selectedLayout === l} />
+                <span
+                  className={`text-[10px] leading-tight text-center ${
+                    selectedLayout === l ? "text-brand-700 font-semibold" : "text-gray-500"
                   }`}
                 >
-                  <LayoutIcon layout={l} active={selectedLayout === l} />
-                  <span
-                    className={`text-[10px] leading-tight text-center ${
-                      selectedLayout === l
-                        ? "text-brand-700 font-semibold"
-                        : "text-gray-500"
-                    }`}
-                  >
-                    {LAYOUTS[l]}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Volume sliders */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-gray-700">Volume</h3>
-            <VolumeSlider
-              label="YouTube Audio"
-              value={ytVolume}
-              onChange={setYtVolume}
-            />
-            <VolumeSlider
-              label="Webcam / Mic"
-              value={wcVolume}
-              onChange={setWcVolume}
-            />
+                  {LAYOUTS[l]}
+                </span>
+              </button>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Download section */}
+      {/* Download */}
       <div className="flex flex-col items-center gap-4">
         {downloadState.status === "idle" && (
           <button
@@ -468,69 +559,42 @@ export default function WatchPlayer({
           </button>
         )}
 
-        {/* Compositing in progress */}
         {downloadState.status === "composing" && (
           <div className="bg-gray-50 rounded-2xl p-6 w-full max-w-md text-center">
             <div className="w-12 h-12 border-4 border-brand-100 border-t-brand rounded-full animate-spin mx-auto mb-4" />
-            <h3 className="font-semibold text-gray-900 mb-1">
-              Composing your video...
-            </h3>
+            <h3 className="font-semibold text-gray-900 mb-1">Composing your video...</h3>
             <p className="text-sm text-gray-500">
               Downloading YouTube source, syncing, and rendering the{" "}
-              {LAYOUTS[selectedLayout].toLowerCase()} layout with your volume
-              settings. This may take a minute or two.
+              {LAYOUTS[selectedLayout].toLowerCase()} layout. This may take a minute or two.
             </p>
           </div>
         )}
 
-        {/* Ready to download */}
         {downloadState.status === "ready" && (
           <div className="bg-green-50 rounded-2xl p-6 w-full max-w-md text-center">
             <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#22c55e"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             </div>
             <h3 className="font-semibold text-gray-900 mb-3">Video ready!</h3>
-            <a
-              href={downloadState.url}
-              download
-              className="inline-block bg-green-500 text-white px-6 py-3 rounded-xl font-medium hover:bg-green-600 transition-colors"
-            >
+            <a href={downloadState.url} download className="inline-block bg-green-500 text-white px-6 py-3 rounded-xl font-medium hover:bg-green-600 transition-colors">
               Download .mp4
             </a>
           </div>
         )}
 
-        {/* Error */}
         {downloadState.status === "error" && (
           <div className="bg-red-50 rounded-2xl p-6 w-full max-w-md text-center">
             <p className="text-red-600 font-medium mb-2">Compositing failed</p>
-            <p className="text-sm text-red-500 mb-4">
-              {downloadState.message}
-            </p>
-            <button
-              onClick={() => setDownloadState({ status: "idle" })}
-              className="text-sm text-red-400 hover:text-red-600"
-            >
+            <p className="text-sm text-red-500 mb-4">{downloadState.message}</p>
+            <button onClick={() => setDownloadState({ status: "idle" })} className="text-sm text-red-400 hover:text-red-600">
               Try again
             </button>
           </div>
         )}
 
-        <a
-          href="/create"
-          className="text-gray-500 px-6 py-3 rounded-xl font-medium hover:text-gray-700 transition-colors"
-        >
+        <a href="/create" className="text-gray-500 px-6 py-3 rounded-xl font-medium hover:text-gray-700 transition-colors">
           Create Your Own Reaction
         </a>
       </div>
@@ -544,12 +608,7 @@ export default function WatchPlayer({
       {reaction.watermarked && (
         <p className="text-center text-xs text-gray-400 mt-6">
           This video includes a ReactionBooth watermark.{" "}
-          <a
-            href="/#pricing"
-            className="text-brand hover:text-brand-600"
-          >
-            Upgrade to Pro
-          </a>{" "}
+          <a href="/#pricing" className="text-brand hover:text-brand-600">Upgrade to Pro</a>{" "}
           for watermark-free reactions.
         </p>
       )}
@@ -557,15 +616,43 @@ export default function WatchPlayer({
   );
 }
 
-// --- Layout icon thumbnails ---
-
-function LayoutIcon({
-  layout,
-  active,
+// --- Compact volume slider ---
+function CompactVolume({
+  icon,
+  label,
+  value,
+  onChange,
 }: {
-  layout: WatchLayout;
-  active: boolean;
+  icon: "yt" | "cam";
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
 }) {
+  return (
+    <div className="flex items-center gap-2 flex-1 min-w-0">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+        {icon === "yt" ? (
+          <><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></>
+        ) : (
+          <><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /></>
+        )}
+      </svg>
+      <span className="text-xs text-gray-500 whitespace-nowrap">{label}</span>
+      <input
+        type="range"
+        min={0}
+        max={200}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="flex-1 h-1.5 bg-gray-200 rounded-full appearance-none cursor-pointer accent-brand min-w-0"
+      />
+      <span className="text-xs text-gray-400 tabular-nums w-9 text-right">{value}%</span>
+    </div>
+  );
+}
+
+// --- Layout icon thumbnails ---
+function LayoutIcon({ layout, active }: { layout: WatchLayout; active: boolean }) {
   const bg = active ? "bg-brand" : "bg-gray-600";
   const fg = active ? "bg-brand-400" : "bg-gray-400";
 
@@ -593,41 +680,11 @@ function LayoutIcon({
     );
   }
 
-  // stacked
   return (
     <div className="w-12 h-8 rounded flex flex-col overflow-hidden gap-px">
       <div className={`flex-1 ${bg}`} />
       <div className="h-0.5 bg-brand" />
       <div className={`flex-1 ${fg}`} />
-    </div>
-  );
-}
-
-// --- Volume slider ---
-
-function VolumeSlider({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div className="flex items-center gap-4">
-      <span className="text-sm text-gray-600 w-28 flex-shrink-0">{label}</span>
-      <input
-        type="range"
-        min={0}
-        max={200}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand"
-      />
-      <span className="text-sm text-gray-500 w-12 text-right tabular-nums">
-        {value}%
-      </span>
     </div>
   );
 }

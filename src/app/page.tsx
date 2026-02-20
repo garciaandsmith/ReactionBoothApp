@@ -1,24 +1,21 @@
 import Link from "next/link";
 import Image from "next/image";
 import AnimatedLogo from "@/components/AnimatedLogo";
+import HeroBackground from "@/components/HeroBackground";
 
 export default function Home() {
   return (
     <div>
-      {/* Hero */}
-      <section className="max-w-5xl mx-auto px-4 pt-20 pb-16 text-center relative overflow-hidden">
-        {/* Animated background blobs */}
-        <div className="hero-bg" aria-hidden="true">
-          <div className="hero-blob hero-blob-1" />
-          <div className="hero-blob hero-blob-2" />
-          <div className="hero-blob hero-blob-3" />
-        </div>
+      {/* Hero — full viewport width so background fills edge-to-edge */}
+      <section className="relative w-full overflow-hidden bg-off-white" style={{ minHeight: "520px" }}>
+        {/* Cursor-reactive geometric circles */}
+        <HeroBackground />
 
-        {/* Content — above the blobs */}
-        <div className="relative z-10">
-          {/* Large animated wordmark — this is what moves to the header on scroll */}
+        {/* Content — centred, width-constrained */}
+        <div className="relative z-10 max-w-5xl mx-auto px-6 pt-20 pb-20 text-center">
+          {/* Large animated wordmark */}
           <div id="hero-wordmark" className="flex justify-center mb-10">
-            <AnimatedLogo width={800} height={142} className="w-full max-w-2xl h-auto" />
+            <AnimatedLogo width={900} height={160} className="w-full max-w-3xl h-auto" />
           </div>
 
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-900 mb-6 text-balance leading-tight">
