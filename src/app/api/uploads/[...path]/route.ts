@@ -14,9 +14,12 @@ export async function GET(
     const contentTypes: Record<string, string> = {
       webm: "video/webm",
       mp4: "video/mp4",
+      mov: "video/quicktime",
       jpg: "image/jpeg",
       jpeg: "image/jpeg",
       png: "image/png",
+      webp: "image/webp",
+      gif: "image/gif",
       json: "application/json",
     };
 

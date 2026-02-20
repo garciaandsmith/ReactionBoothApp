@@ -10,7 +10,6 @@ const smtpConfigured = !!(
   process.env.SMTP_USER
 );
 
-// Build providers list
 const providers: NextAuthOptions["providers"] = [
   CredentialsProvider({
     name: "credentials",
@@ -27,18 +26,17 @@ const providers: NextAuthOptions["providers"] = [
 
       if (!user || !user.passwordHash) return null;
 
-      const valid = await bcrypt.compare(
-        credentials.password,
-        user.passwordHash
-      );
+      const valid = await bcrypt.compare(credentials.password, user.passwordHash);
       if (!valid) return null;
+
+      // Block paused accounts
+      if (user.status === "paused") return null;
 
       return { id: user.id, email: user.email, name: user.name };
     },
   }),
 ];
 
-// Optionally add email provider if SMTP is configured
 if (smtpConfigured) {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const EmailProvider = require("next-auth/providers/email").default;
@@ -68,9 +66,11 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async session({ session, token }) {
       if (session.user && token.sub) {
-        (session.user as { id?: string; plan?: string }).id = token.sub;
-        (session.user as { id?: string; plan?: string }).plan =
+        (session.user as { id?: string; plan?: string; role?: string }).id = token.sub;
+        (session.user as { id?: string; plan?: string; role?: string }).plan =
           (token.plan as string) || "free";
+        (session.user as { id?: string; plan?: string; role?: string }).role =
+          (token.role as string) || "user";
       }
       return session;
     },
@@ -79,9 +79,10 @@ export const authOptions: NextAuthOptions = {
         token.sub = user.id;
         const dbUser = await prisma.user.findUnique({
           where: { id: user.id },
-          select: { plan: true },
+          select: { plan: true, role: true, status: true },
         });
         token.plan = dbUser?.plan || "free";
+        token.role = dbUser?.role || "user";
       }
       return token;
     },

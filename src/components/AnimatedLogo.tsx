@@ -3,17 +3,18 @@
 import { useRef, useEffect } from "react";
 
 // SVG viewBox: 0 0 1509.84 267.93
-// Each eye lives inside one of the O's in "BOOTH":
-//   EYE1 socket centre: (1093.12, 172.96)
-//   EYE3 socket centre: (1229.12, 172.96)
-// The white sclera circles are fixed; a <g> containing iris + highlight
-// is translated so the pupil follows the cursor within the socket.
+// Each O of "BOOTH" has a transparent inner hole (the path is a proper ring).
+// We draw a white circle inside each O that is slightly smaller than the hole,
+// then shift that circle with the cursor — the effect is that the *hole itself*
+// appears to move inside the ring, making one side look thicker (parallax).
+// No black pupils — it's supposed to look like O's, not eyes.
 
 const EYE1_CX = 1093.12;
 const EYE1_CY = 172.96;
 const EYE3_CX = 1229.12;
 const EYE3_CY = 172.96;
-const MAX_OFFSET = 10; // SVG user-units — keeps pupil comfortably inside O
+const MAX_OFFSET = 9; // SVG user-units — keeps hole visually inside the ring
+const SPEED = 0.1;
 
 interface AnimatedLogoProps {
   className?: string;
@@ -27,11 +28,10 @@ export default function AnimatedLogo({
   height = 32,
 }: AnimatedLogoProps) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const eye1GRef = useRef<SVGGElement>(null);
-  const eye3GRef = useRef<SVGGElement>(null);
+  const hole1Ref = useRef<SVGCircleElement>(null);
+  const hole3Ref = useRef<SVGCircleElement>(null);
   const rafRef = useRef<number>(0);
 
-  // Current offset from each socket centre (starts at 0,0)
   const current = useRef({ e1x: 0, e1y: 0, e3x: 0, e3y: 0 });
   const target = useRef({ e1x: 0, e1y: 0, e3x: 0, e3y: 0 });
 
@@ -39,9 +39,7 @@ export default function AnimatedLogo({
     const handleMouseMove = (e: MouseEvent) => {
       const svg = svgRef.current;
       if (!svg) return;
-
       const rect = svg.getBoundingClientRect();
-      // Map client coords → SVG user-unit coords
       const svgX = ((e.clientX - rect.left) / rect.width) * 1509.84;
       const svgY = ((e.clientY - rect.top) / rect.height) * 267.93;
 
@@ -64,12 +62,10 @@ export default function AnimatedLogo({
     };
 
     const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-    const SPEED = 0.12;
 
     const animate = () => {
       const t = target.current;
       const c = current.current;
-
       const n = {
         e1x: lerp(c.e1x, t.e1x, SPEED),
         e1y: lerp(c.e1y, t.e1y, SPEED),
@@ -78,15 +74,11 @@ export default function AnimatedLogo({
       };
       current.current = n;
 
-      // Apply as SVG presentation-attribute transform (user-unit translate)
-      eye1GRef.current?.setAttribute(
-        "transform",
-        `translate(${n.e1x.toFixed(2)},${n.e1y.toFixed(2)})`
-      );
-      eye3GRef.current?.setAttribute(
-        "transform",
-        `translate(${n.e3x.toFixed(2)},${n.e3y.toFixed(2)})`
-      );
+      // Move the white hole-circles (not pupils — the holes themselves shift)
+      hole1Ref.current?.setAttribute("cx", (EYE1_CX + n.e1x).toFixed(2));
+      hole1Ref.current?.setAttribute("cy", (EYE1_CY + n.e1y).toFixed(2));
+      hole3Ref.current?.setAttribute("cx", (EYE3_CX + n.e3x).toFixed(2));
+      hole3Ref.current?.setAttribute("cy", (EYE3_CY + n.e3y).toFixed(2));
 
       rafRef.current = requestAnimationFrame(animate);
     };
@@ -128,7 +120,7 @@ export default function AnimatedLogo({
         <path className="rb-l" d="M700.03,220.02c-11.88,0-22.7-2.71-32.45-8.14-9.76-5.42-17.53-12.87-23.32-22.33-5.8-9.46-8.69-20.2-8.69-32.23s2.89-22.95,8.69-32.34c5.79-9.38,13.56-16.79,23.32-22.22,9.75-5.42,20.57-8.14,32.45-8.14s22.66,2.72,32.34,8.14c9.68,5.43,17.41,12.84,23.21,22.22,5.79,9.39,8.69,20.17,8.69,32.34s-2.9,22.77-8.69,32.23c-5.79,9.46-13.53,16.91-23.21,22.33-9.68,5.43-20.46,8.14-32.34,8.14ZM700.03,190.32c6.01,0,11.25-1.39,15.73-4.18,4.47-2.78,7.99-6.67,10.56-11.66,2.56-4.98,3.85-10.7,3.85-17.16s-1.29-12.13-3.85-17.05c-2.57-4.91-6.09-8.8-10.56-11.66-4.48-2.86-9.72-4.29-15.73-4.29s-11.3,1.43-15.84,4.29c-4.55,2.86-8.11,6.75-10.67,11.66-2.57,4.92-3.85,10.6-3.85,17.05s1.28,12.18,3.85,17.16c2.56,4.99,6.12,8.88,10.67,11.66,4.54,2.79,9.82,4.18,15.84,4.18Z"/>
         <path className="rb-l" d="M767.79,217.38v-120.12h30.8v23.76l-1.76-5.28c2.78-7.18,7.29-12.5,13.53-15.95,6.23-3.44,13.53-5.17,21.89-5.17,9.09,0,17.05,1.91,23.87,5.72,6.82,3.82,12.13,9.13,15.95,15.95,3.81,6.82,5.72,14.78,5.72,23.87v77.22h-33v-70.18c0-4.69-.92-8.72-2.75-12.1-1.84-3.37-4.4-6.01-7.7-7.92-3.3-1.9-7.15-2.86-11.55-2.86s-8.07.96-11.44,2.86c-3.38,1.91-5.98,4.55-7.81,7.92-1.84,3.38-2.75,7.41-2.75,12.1v70.18h-33Z"/>
         <path className="rb-l" d="M886.15,217.38V53.48h69.3c11.29,0,20.97,1.91,29.04,5.72,8.06,3.82,14.22,9.28,18.48,16.39,4.25,7.12,6.38,15.73,6.38,25.85,0,7.19-1.98,14.05-5.94,20.57-3.96,6.53-10.49,11.99-19.58,16.39v-16.72c8.65,3.38,15.32,7.41,20.02,12.1,4.69,4.7,7.92,9.79,9.68,15.29s2.64,11.26,2.64,17.27c0,16.14-5.36,28.68-16.06,37.62-10.71,8.95-25.6,13.42-44.66,13.42h-69.3ZM920.25,115.08h37.62c5.28,0,9.49-1.5,12.65-4.51,3.15-3,4.73-7,4.73-11.99s-1.58-8.98-4.73-11.99c-3.16-3-7.37-4.51-12.65-4.51h-37.62v33ZM920.25,187.68h39.16c6.89,0,12.39-1.98,16.5-5.94,4.1-3.96,6.16-9.09,6.16-15.4s-2.06-11.66-6.16-15.62c-4.11-3.96-9.61-5.94-16.5-5.94h-39.16v42.9Z"/>
-        {/* First O of BOOTH — the letter ring only; inner hole is transparent */}
+        {/* First O of BOOTH — ring path; inner hole becomes the animated element */}
         <path className="rb-l" d="M1079.31,220.02c-11.88,0-22.7-2.71-32.45-8.14-9.61-5.5-17.24-13.01-22.88-22.55-5.65-9.53-8.47-20.24-8.47-32.12s2.78-22.55,8.36-32.01c5.57-9.46,13.2-16.9,22.88-22.33,9.68-5.42,20.53-8.14,32.56-8.14s22.66,2.72,32.34,8.14c9.68,5.43,17.42,12.84,23.21,22.22,5.79,9.39,8.69,20.17,8.69,32.34s-2.9,22.77-8.69,32.23c-5.79,9.46-13.53,16.91-23.21,22.33-9.68,5.43-20.46,8.14-32.34,8.14Z"/>
         {/* Second O of BOOTH */}
         <path className="rb-l" d="M1206.69,220.02c-11.88,0-22.7-2.71-32.45-8.14-9.75-5.42-17.53-12.87-23.32-22.33-5.8-9.46-8.69-20.2-8.69-32.23s2.89-22.95,8.69-32.34c5.79-9.38,13.56-16.79,23.32-22.22,9.75-5.42,20.57-8.14,32.45-8.14s22.66,2.72,32.34,8.14c9.68,5.43,17.42,12.84,23.21,22.22,5.79,9.39,8.69,20.17,8.69,32.34s-2.9,22.77-8.69,32.23c-5.79,9.46-13.53,16.91-23.21,22.33-9.68,5.43-20.46,8.14-32.34,8.14Z"/>
@@ -136,20 +128,12 @@ export default function AnimatedLogo({
         <path className="rb-l" d="M1349.03,217.38V50.84h33v70.18l-3.96-5.28c2.79-7.18,7.29-12.5,13.53-15.95,6.23-3.44,13.53-5.17,21.89-5.17,9.09,0,17.05,1.91,23.87,5.72,6.82,3.82,12.13,9.13,15.95,15.95,3.81,6.82,5.72,14.78,5.72,23.87v77.22h-33v-70.18c0-4.69-.92-8.72-2.75-12.1-1.83-3.37-4.4-6.01-7.7-7.92-3.3-1.9-7.15-2.86-11.55-2.86s-8.07.96-11.44,2.86c-3.38,1.91-5.98,4.55-7.81,7.92-1.83,3.38-2.75,7.41-2.75,12.1v70.18h-33Z"/>
       </g>
 
-      {/* ── Animated eyes inside the O's of "BOOTH" ── */}
-      {/* White sclera — simulates the transparent hole of each O */}
-      <circle cx={EYE1_CX} cy={EYE1_CY} r="25.4" fill="#f7f9f8" />
-      <circle cx={EYE3_CX} cy={EYE3_CY} r="25.4" fill="#f7f9f8" />
-
-      {/* Eye 1: pupil only — the O hole IS the eye, the dark dot moves within it */}
-      <g ref={eye1GRef}>
-        <circle cx={EYE1_CX} cy={EYE1_CY} r="7" fill="#121212" />
-      </g>
-
-      {/* Eye 3: pupil only */}
-      <g ref={eye3GRef}>
-        <circle cx={EYE3_CX} cy={EYE3_CY} r="7" fill="#121212" />
-      </g>
+      {/* ── Animated holes inside the O's of "BOOTH" ── */}
+      {/* These white circles represent the transparent hole of each O.
+          They shift with the cursor — making one side of the ring look thicker.
+          No pupils: the O looks like an O, not an eye. */}
+      <circle ref={hole1Ref} cx={EYE1_CX} cy={EYE1_CY} r="25.4" fill="#f7f9f8" />
+      <circle ref={hole3Ref} cx={EYE3_CX} cy={EYE3_CY} r="25.4" fill="#f7f9f8" />
     </svg>
   );
 }
