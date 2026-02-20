@@ -285,7 +285,7 @@ export default function Home() {
             alt="Celebrating mascot"
             width={96}
             height={96}
-            className="mx-auto mb-6"
+            className="mx-auto mb-6 mascot-joy"
           />
           <h2 className="text-3xl font-bold text-gray-900 mb-4">
             &ldquo;I wish I could see your face when you watch this.&rdquo;

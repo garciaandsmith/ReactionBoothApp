@@ -66,7 +66,7 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
           alt="Smiling mascot welcoming you"
           width={96}
           height={96}
-          className="mx-auto mb-6"
+          className="mx-auto mb-6 mascot-float"
         />
         <h1 className="text-2xl font-bold text-gray-900 mb-3">
           You&apos;ve been invited to a Reaction Booth!
@@ -171,7 +171,7 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
           alt="Excited mascot"
           width={80}
           height={80}
-          className="mx-auto mb-4"
+          className="mx-auto mb-4 mascot-ooh"
         />
         <div className="w-16 h-16 border-4 border-brand-100 border-t-brand rounded-full animate-spin mx-auto mb-6" />
         <h2 className="text-xl font-semibold text-gray-900 mb-2">
@@ -199,7 +199,7 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
         alt="Celebrating mascot"
         width={96}
         height={96}
-        className="mx-auto mb-6"
+        className="mx-auto mb-6 mascot-joy"
       />
       <h1 className="text-2xl font-bold text-gray-900 mb-3">
         Reaction recorded!
