@@ -1,38 +1,50 @@
 import Link from "next/link";
 import Image from "next/image";
+import AnimatedLogo from "@/components/AnimatedLogo";
 
 export default function Home() {
   return (
     <div>
       {/* Hero */}
-      <section className="max-w-5xl mx-auto px-4 pt-20 pb-16 text-center">
-        <div className="inline-flex items-center gap-2 bg-brand-50 text-soft-black px-4 py-1.5 rounded-full text-sm font-medium mb-8">
-          <span className="w-2 h-2 bg-brand-400 rounded-full" />
-          No editing skills required
+      <section className="max-w-5xl mx-auto px-4 pt-20 pb-16 text-center relative overflow-hidden">
+        {/* Animated background blobs */}
+        <div className="hero-bg" aria-hidden="true">
+          <div className="hero-blob hero-blob-1" />
+          <div className="hero-blob hero-blob-2" />
+          <div className="hero-blob hero-blob-3" />
         </div>
-        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-900 mb-6 text-balance leading-tight">
-          See their face when
-          <br />
-          they watch it
-        </h1>
-        <p className="text-lg text-gray-500 max-w-2xl mx-auto mb-10 text-balance">
-          ReactionBooth turns any YouTube link into a private reaction
-          experience. Paste a link, share it, and capture their genuine
-          reaction.
-        </p>
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-          <Link
-            href="/dashboard"
-            className="bg-brand text-soft-black px-8 py-3.5 rounded-xl font-medium hover:bg-brand-600 transition-colors text-lg"
-          >
-            Create a Reaction
-          </Link>
-          <a
-            href="#how-it-works"
-            className="text-gray-500 px-8 py-3.5 rounded-xl font-medium hover:text-gray-700 transition-colors text-lg"
-          >
-            How it works
-          </a>
+
+        {/* Content — above the blobs */}
+        <div className="relative z-10">
+          {/* Large animated wordmark — this is what moves to the header on scroll */}
+          <div id="hero-wordmark" className="flex justify-center mb-10">
+            <AnimatedLogo width={800} height={142} className="w-full max-w-2xl h-auto" />
+          </div>
+
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-900 mb-6 text-balance leading-tight">
+            See their face when
+            <br />
+            they watch it
+          </h1>
+          <p className="text-lg text-gray-500 max-w-2xl mx-auto mb-10 text-balance">
+            ReactionBooth turns any YouTube link into a private reaction
+            experience. Paste a link, share it, and capture their genuine
+            reaction.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <Link
+              href="/auth/signin"
+              className="bg-brand text-soft-black px-8 py-3.5 rounded-xl font-medium hover:bg-brand-600 transition-colors text-lg"
+            >
+              Create a Reaction
+            </Link>
+            <a
+              href="#how-it-works"
+              className="text-gray-500 px-8 py-3.5 rounded-xl font-medium hover:text-gray-700 transition-colors text-lg"
+            >
+              How it works
+            </a>
+          </div>
         </div>
       </section>
 
@@ -41,6 +53,12 @@ export default function Home() {
         id="how-it-works"
         className="max-w-5xl mx-auto px-4 py-20 border-t border-gray-100"
       >
+        <div className="flex justify-center mb-4">
+          <div className="inline-flex items-center gap-2 bg-brand-50 text-soft-black px-4 py-1.5 rounded-full text-sm font-medium">
+            <span className="w-2 h-2 bg-brand-400 rounded-full" />
+            No editing skills required
+          </div>
+        </div>
         <h2 className="text-3xl font-bold text-gray-900 text-center mb-4">
           Three steps. That&apos;s it.
         </h2>
@@ -222,7 +240,7 @@ export default function Home() {
               ))}
             </ul>
             <Link
-              href="/dashboard"
+              href="/auth/signin"
               className="block w-full text-center bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200 transition-colors"
             >
               Get Started
@@ -270,8 +288,11 @@ export default function Home() {
                 </li>
               ))}
             </ul>
-            <button className="block w-full text-center bg-soft-black text-white py-3 rounded-xl font-medium hover:bg-soft-black/80 transition-colors">
-              Upgrade to Pro
+            <button
+              disabled
+              className="block w-full text-center bg-soft-black/50 text-white/70 py-3 rounded-xl font-medium cursor-not-allowed"
+            >
+              Coming Soon
             </button>
           </div>
         </div>
@@ -294,7 +315,7 @@ export default function Home() {
             Now you can. Create your first reaction in under a minute.
           </p>
           <Link
-            href="/dashboard"
+            href="/auth/signin"
             className="inline-block bg-brand text-soft-black px-8 py-3.5 rounded-xl font-medium hover:bg-brand-600 transition-colors text-lg"
           >
             Create a Reaction
