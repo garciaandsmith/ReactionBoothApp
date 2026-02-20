@@ -189,68 +189,39 @@ export default function DualRecorder({
 
   const progressPct = Math.min((elapsed / maxDuration) * 100, 100);
 
-  // ── Main recording UI — YouTube is primary, webcam is PIP ──
+  // ── Main UI: YouTube on top (full width), webcam below ──
   return (
-    <div className="space-y-4">
-      {/* Main stage: YouTube video with webcam PIP overlay */}
-      <div className="relative rounded-2xl overflow-hidden bg-black" style={{ aspectRatio: "16/9" }}>
-        {/* YouTube — full stage */}
-        <div className="absolute inset-0">
-          <YouTubePlayer
-            ref={youtubeRef}
-            videoUrl={videoUrl}
-            controlledMode={isRecording}
-            onStateChange={handleYouTubeStateChange}
-            onReady={() => setYoutubeReady(true)}
-            className="w-full h-full"
-          />
-        </div>
+    <div className="space-y-3">
 
-        {/* Webcam PIP — bottom-right corner, mirrored for natural feel */}
-        <div className="absolute bottom-4 right-4 w-[22%] aspect-video rounded-xl overflow-hidden border-2 border-white/30 shadow-xl bg-gray-900 z-20">
-          <video
-            ref={webcamRef}
-            autoPlay
-            muted
-            playsInline
-            className="w-full h-full object-cover"
-            style={{ transform: "scaleX(-1)" }}
-          />
-          {/* "You" label */}
-          <div className="absolute bottom-1 left-2 text-white/70 text-[10px] font-medium">You</div>
-        </div>
+      {/* YouTube — full width, 16:9 */}
+      <div className="relative rounded-2xl overflow-hidden bg-black" style={{ aspectRatio: "16/9" }}>
+        <YouTubePlayer
+          ref={youtubeRef}
+          videoUrl={videoUrl}
+          controlledMode={false}
+          onStateChange={handleYouTubeStateChange}
+          onReady={() => setYoutubeReady(true)}
+          className="absolute inset-0 w-full h-full"
+        />
 
         {/* Recording badge — top left */}
         {isRecording && (
-          <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-sm z-30">
+          <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-sm z-10 pointer-events-none">
             <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
             <span className="tabular-nums">{formatTime(elapsed)}</span>
             <span className="text-gray-400">/ {formatTime(maxDuration)}</span>
           </div>
         )}
 
-        {/* Ready-to-record overlay (before first press) */}
-        {!isRecording && youtubeReady && (
-          <div className="absolute inset-0 flex items-center justify-center z-20 bg-black/30">
-            <button
-              onClick={startDualRecording}
-              className="flex items-center gap-3 bg-red-500 hover:bg-red-600 text-white px-8 py-4 rounded-2xl font-semibold text-lg transition-colors shadow-2xl"
-            >
-              <span className="w-5 h-5 bg-white rounded-full flex-shrink-0" />
-              Start Recording
-            </button>
-          </div>
-        )}
-
         {/* Loading overlay */}
         {!youtubeReady && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-30">
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-20">
             <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
           </div>
         )}
       </div>
 
-      {/* Progress bar — shown during recording */}
+      {/* Progress bar */}
       {isRecording && (
         <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
           <div
@@ -260,25 +231,48 @@ export default function DualRecorder({
         </div>
       )}
 
-      {/* Stop button + info bar */}
-      <div className="flex items-center justify-between">
-        <div>
+      {/* Webcam preview + controls row */}
+      <div className="flex items-center gap-4">
+        {/* Webcam — fixed-size preview */}
+        <div className="relative rounded-xl overflow-hidden bg-gray-900 flex-shrink-0" style={{ width: 180, aspectRatio: "16/9" }}>
+          <video
+            ref={webcamRef}
+            autoPlay
+            muted
+            playsInline
+            className="w-full h-full object-cover"
+            style={{ transform: "scaleX(-1)" }}
+          />
+          <div className="absolute bottom-1 left-2 text-white/60 text-[10px] font-medium pointer-events-none">You</div>
+        </div>
+
+        {/* Controls */}
+        <div className="flex-1 flex flex-col gap-2">
+          {!isRecording ? (
+            <button
+              onClick={startDualRecording}
+              disabled={!youtubeReady}
+              className="flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl font-semibold transition-colors w-full"
+            >
+              <span className="w-3 h-3 bg-white rounded-full flex-shrink-0" />
+              {youtubeReady ? "Start Recording" : "Loading video…"}
+            </button>
+          ) : (
+            <button
+              onClick={stopDualRecording}
+              className="flex items-center justify-center gap-2 bg-gray-900 hover:bg-gray-700 text-white px-6 py-3 rounded-xl font-medium transition-colors w-full"
+            >
+              <span className="w-3 h-3 bg-red-500 rounded-sm flex-shrink-0" />
+              Stop Recording
+            </button>
+          )}
+
           {watermarked && (
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-gray-400 text-center">
               Free tier — reaction will include a ReactionBooth watermark
             </p>
           )}
         </div>
-
-        {isRecording && (
-          <button
-            onClick={stopDualRecording}
-            className="flex items-center gap-2 bg-gray-900 hover:bg-gray-700 text-white px-6 py-3 rounded-xl font-medium transition-colors"
-          >
-            <span className="w-3.5 h-3.5 bg-red-500 rounded-sm flex-shrink-0" />
-            Stop Recording
-          </button>
-        )}
       </div>
     </div>
   );
