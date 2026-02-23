@@ -50,5 +50,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV NODE_ENV=production
 
-# Run migrations then start the app
-CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]
+# Push schema to DB (creates tables if they don't exist) then start the app
+CMD ["sh", "-c", "npx prisma db push && npm start"]
