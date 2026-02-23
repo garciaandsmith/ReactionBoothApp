@@ -10,11 +10,13 @@ export default function SignInPage() {
   const [password, setPassword] = useState("");
   const [isRegister, setIsRegister] = useState(false);
   const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setPending(false);
     setLoading(true);
 
     try {
@@ -27,6 +29,12 @@ export default function SignInPage() {
         const data = await res.json();
         if (!res.ok) {
           setError(data.error || "Failed to create account");
+          setLoading(false);
+          return;
+        }
+        // New accounts are pending approval — don't attempt sign-in
+        if (data.status === "pending") {
+          setPending(true);
           setLoading(false);
           return;
         }
@@ -54,6 +62,30 @@ export default function SignInPage() {
       setLoading(false);
     }
   };
+
+  if (pending) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-20">
+        <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center space-y-4">
+          <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center mx-auto">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </div>
+          <h1 className="text-xl font-bold text-gray-900">Account pending approval</h1>
+          <p className="text-gray-500 text-sm">
+            Your account has been created and is awaiting admin approval.
+            You&apos;ll be able to sign in once your access is approved.
+          </p>
+          <p className="text-xs text-gray-400">
+            Signed up as <span className="font-medium text-gray-600">{email}</span>
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-md mx-auto px-4 py-20">
@@ -136,6 +168,7 @@ export default function SignInPage() {
             onClick={() => {
               setIsRegister(!isRegister);
               setError("");
+              setPending(false);
             }}
             className="text-sm text-brand hover:text-brand-600"
           >

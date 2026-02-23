@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 interface Stats {
-  users: number;
-  reactions: number;
-  completed: number;
+  total: number;
+  pending: number;
+  active: number;
 }
 
 export default function AdminPage() {
@@ -15,7 +15,14 @@ export default function AdminPage() {
   useEffect(() => {
     fetch("/api/admin/users")
       .then((r) => r.json())
-      .then((users) => setStats({ users: users.length, reactions: 0, completed: 0 }))
+      .then((users: { status: string }[]) => {
+        if (!Array.isArray(users)) return;
+        setStats({
+          total: users.length,
+          pending: users.filter((u) => u.status === "pending").length,
+          active: users.filter((u) => u.status === "active").length,
+        });
+      })
       .catch(() => {});
   }, []);
 
@@ -23,7 +30,7 @@ export default function AdminPage() {
     {
       href: "/admin/users",
       label: "User Management",
-      desc: "View, create, pause, and upgrade user accounts",
+      desc: "View, approve, pause, and upgrade user accounts",
       icon: (
         <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
       ),
@@ -50,12 +57,44 @@ export default function AdminPage() {
       </div>
 
       <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
+        {/* Pending approval alert */}
+        {stats && stats.pending > 0 && (
+          <Link href="/admin/users" className="block">
+            <div className="bg-amber-50 border border-amber-300 rounded-2xl p-5 flex items-center justify-between hover:border-amber-400 transition-colors">
+              <div className="flex items-center gap-3">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <div>
+                  <p className="text-sm font-semibold text-amber-800">
+                    {stats.pending} account{stats.pending > 1 ? "s" : ""} awaiting approval
+                  </p>
+                  <p className="text-xs text-amber-700">Click to review and approve signups</p>
+                </div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </div>
+          </Link>
+        )}
+
         {/* Stats */}
         {stats && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             <div className="bg-white rounded-2xl border border-gray-200 p-6">
-              <p className="text-3xl font-bold text-gray-900">{stats.users}</p>
-              <p className="text-sm text-gray-500 mt-1">Total Users</p>
+              <p className="text-3xl font-bold text-gray-900">{stats.total}</p>
+              <p className="text-sm text-gray-500 mt-1">Total Signups</p>
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-200 p-6">
+              <p className="text-3xl font-bold text-green-600">{stats.active}</p>
+              <p className="text-sm text-gray-500 mt-1">Active Users</p>
+            </div>
+            <div className={`rounded-2xl border p-6 ${stats.pending > 0 ? "bg-amber-50 border-amber-200" : "bg-white border-gray-200"}`}>
+              <p className={`text-3xl font-bold ${stats.pending > 0 ? "text-amber-600" : "text-gray-900"}`}>{stats.pending}</p>
+              <p className="text-sm text-gray-500 mt-1">Pending Approval</p>
             </div>
           </div>
         )}

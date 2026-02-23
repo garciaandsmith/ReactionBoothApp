@@ -34,10 +34,10 @@ export async function POST(request: NextRequest) {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const user = await prisma.user.create({
-      data: { email, passwordHash },
+      data: { email, passwordHash, status: "pending" },
     });
 
-    return NextResponse.json({ id: user.id, email: user.email });
+    return NextResponse.json({ id: user.id, email: user.email, status: "pending" });
   } catch (error) {
     console.error("Registration error:", error);
     return NextResponse.json(
