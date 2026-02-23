@@ -58,6 +58,14 @@ export default function Header() {
         <nav className="flex items-center gap-6">
           {session ? (
             <>
+              {(session.user as { role?: string })?.role === "admin" && (
+                <Link
+                  href="/admin"
+                  className="text-sm text-purple-600 hover:text-purple-800 font-medium transition-colors"
+                >
+                  Admin
+                </Link>
+              )}
               <Link
                 href="/dashboard"
                 className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
