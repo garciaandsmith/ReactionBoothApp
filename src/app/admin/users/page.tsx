@@ -93,6 +93,7 @@ export default function AdminUsersPage() {
     const colors: Record<string, string> = {
       active: "bg-green-100 text-green-700",
       paused: "bg-red-100 text-red-700",
+      pending: "bg-amber-100 text-amber-700",
     };
     return (
       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${colors[status] ?? "bg-gray-100 text-gray-600"}`}>
@@ -110,6 +111,8 @@ export default function AdminUsersPage() {
       </span>
     );
   };
+
+  const pendingUsers = users.filter((u) => u.status === "pending");
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -140,6 +143,27 @@ export default function AdminUsersPage() {
       </div>
 
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+        {/* Pending approval banner */}
+        {pendingUsers.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+            <div className="flex items-start gap-3">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <div>
+                <p className="text-sm font-semibold text-amber-800">
+                  {pendingUsers.length} account{pendingUsers.length > 1 ? "s" : ""} awaiting approval
+                </p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  {pendingUsers.map((u) => u.email).join(", ")}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Create user form */}
         {showCreate && (
           <div className="bg-white rounded-2xl border border-gray-200 p-6">
@@ -235,7 +259,7 @@ export default function AdminUsersPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {users.map((user) => (
-                    <tr key={user.id} className="hover:bg-gray-50">
+                    <tr key={user.id} className={`hover:bg-gray-50 ${user.status === "pending" ? "bg-amber-50/40" : ""}`}>
                       <td className="px-6 py-4">
                         <div>
                           <div className="flex items-center gap-2">
@@ -264,18 +288,38 @@ export default function AdminUsersPage() {
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-2">
-                          {/* Toggle status */}
-                          <button
-                            onClick={() => updateUser(user.id, { status: user.status === "active" ? "paused" : "active" })}
-                            disabled={saving === user.id}
-                            className={`text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
-                              user.status === "active"
-                                ? "bg-red-50 text-red-600 hover:bg-red-100"
-                                : "bg-green-50 text-green-600 hover:bg-green-100"
-                            } disabled:opacity-50`}
-                          >
-                            {saving === user.id ? "..." : user.status === "active" ? "Pause" : "Activate"}
-                          </button>
+                          {user.status === "pending" ? (
+                            /* Approve / Reject for pending accounts */
+                            <>
+                              <button
+                                onClick={() => updateUser(user.id, { status: "active" })}
+                                disabled={saving === user.id}
+                                className="text-xs px-2.5 py-1.5 rounded-lg font-medium bg-green-50 text-green-700 hover:bg-green-100 transition-colors disabled:opacity-50"
+                              >
+                                {saving === user.id ? "..." : "Approve"}
+                              </button>
+                              <button
+                                onClick={() => updateUser(user.id, { status: "paused" })}
+                                disabled={saving === user.id}
+                                className="text-xs px-2.5 py-1.5 rounded-lg font-medium bg-red-50 text-red-600 hover:bg-red-100 transition-colors disabled:opacity-50"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          ) : (
+                            /* Toggle status for active/paused accounts */
+                            <button
+                              onClick={() => updateUser(user.id, { status: user.status === "active" ? "paused" : "active" })}
+                              disabled={saving === user.id}
+                              className={`text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
+                                user.status === "active"
+                                  ? "bg-red-50 text-red-600 hover:bg-red-100"
+                                  : "bg-green-50 text-green-600 hover:bg-green-100"
+                              } disabled:opacity-50`}
+                            >
+                              {saving === user.id ? "..." : user.status === "active" ? "Pause" : "Activate"}
+                            </button>
+                          )}
                           {/* Toggle plan */}
                           <button
                             onClick={() => updateUser(user.id, { plan: user.plan === "free" ? "pro" : "free" })}

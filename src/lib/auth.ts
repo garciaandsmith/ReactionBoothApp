@@ -28,8 +28,8 @@ const providers: NextAuthOptions["providers"] = [
       const valid = await bcrypt.compare(credentials.password, user.passwordHash);
       if (!valid) return null;
 
-      // Block paused accounts
-      if (user.status === "paused") return null;
+      // Block paused and pending-approval accounts
+      if (user.status === "paused" || user.status === "pending") return null;
 
       return { id: user.id, email: user.email, name: user.name };
     },
