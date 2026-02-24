@@ -7,6 +7,8 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { PLANS } from "@/lib/constants";
 import { isMaintenanceMode } from "@/lib/maintenance";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(request: NextRequest) {
   try {
     if (await isMaintenanceMode()) {
