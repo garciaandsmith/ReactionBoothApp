@@ -38,9 +38,25 @@ export async function downloadYouTube(
   outputPath: string
 ): Promise<void> {
   const writeStream = createWriteStream(outputPath);
+
+  // Build a ytdl agent with YouTube session cookies so that bot-detection
+  // challenges ("Sign in to confirm you're not a bot") are bypassed.
+  // Cookies must be provided as a JSON array in the YOUTUBE_COOKIES env var:
+  //   [{"name":"VISITOR_INFO1_LIVE","value":"..."},{"name":"YSC","value":"..."},...]
+  let cookies: ytdl.Cookie[] | undefined;
+  if (process.env.YOUTUBE_COOKIES) {
+    try {
+      cookies = JSON.parse(process.env.YOUTUBE_COOKIES);
+    } catch {
+      // Malformed env var — proceed without cookies
+    }
+  }
+  const agent = ytdl.createAgent(cookies);
+
   const videoStream = ytdl(videoUrl, {
     filter: "audioandvideo",
     quality: "highest",
+    agent,
   });
   await pipeline(videoStream as unknown as NodeJS.ReadableStream, writeStream);
 }
