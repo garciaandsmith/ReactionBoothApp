@@ -2,8 +2,32 @@ import Link from "next/link";
 import Image from "next/image";
 import AnimatedLogo from "@/components/AnimatedLogo";
 import HeroBackground from "@/components/HeroBackground";
+import { isMaintenanceMode } from "@/lib/maintenance";
 
-export default function Home() {
+export default async function Home() {
+  const maintenance = await isMaintenanceMode();
+
+  if (maintenance) {
+    return (
+      <div className="min-h-screen bg-off-white flex flex-col items-center justify-center px-6 text-center">
+        <Image
+          src="/assets/mascotooh.svg"
+          alt="Mascot"
+          width={96}
+          height={96}
+          className="mb-8"
+        />
+        <h1 className="text-4xl font-bold text-gray-900 mb-4">
+          We&apos;ll be right back
+        </h1>
+        <p className="text-gray-500 max-w-md mb-2">
+          ReactionBooth is temporarily paused. We&apos;re doing some behind-the-scenes work.
+        </p>
+        <p className="text-gray-400 text-sm">Check back soon!</p>
+      </div>
+    );
+  }
+
   return (
     <div>
       {/* Hero — full viewport width so background fills edge-to-edge */}
