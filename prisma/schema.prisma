@@ -6,8 +6,9 @@ generator client {
 // Production:        → DATABASE_URL="postgresql://user:pass@host:5432/db"
 // Change provider below to "postgresql" before deploying.
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")   // Supabase pooler URL (port 6543) — used at runtime
+  directUrl = env("DIRECT_URL")     // Supabase direct URL (port 5432) — used by Prisma migrate/push
 }
 
 model User {
