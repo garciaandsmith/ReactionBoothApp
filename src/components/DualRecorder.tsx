@@ -42,6 +42,9 @@ export default function DualRecorder({
   const pendingEventLogRef = useRef<ReactionEventLog | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const isRecordingRef = useRef(false);
+  // Stable ref so handleYouTubeStateChange can call stopDualRecording
+  // without a forward-reference issue or stale closure.
+  const stopDualRecordingRef = useRef<() => void>(() => {});
 
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [permissionGranted, setPermissionGranted] = useState(false);
@@ -98,9 +101,9 @@ export default function DualRecorder({
 
       eventsRef.current.push({ type: eventType, timestampMs: now - recordingStartRef.current, videoTimeS: videoTime });
 
-      if (eventType === "ended") stopDualRecording();
+      if (eventType === "ended") stopDualRecordingRef.current();
     },
-    [stopDualRecording]
+    []
   );
 
   const startDualRecording = useCallback(() => {
@@ -165,6 +168,9 @@ export default function DualRecorder({
     }
     setIsRecording(false);
   }, [videoUrl]);
+  // Keep the stable ref current so handleYouTubeStateChange always calls
+  // the latest version without a forward-reference in its dep array.
+  stopDualRecordingRef.current = stopDualRecording;
 
   // ── Permission screen ──
   if (!permissionGranted) {
