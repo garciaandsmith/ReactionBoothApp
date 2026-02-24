@@ -18,7 +18,7 @@ export async function POST(
     const jsonResponse = await handleUpload({
       body,
       request,
-      onBeforeGenerateToken: async (_pathname) => {
+      onBeforeGenerateToken: async () => {
         const reaction = await prisma.reaction.findUnique({
           where: { id: params.id },
         });
