@@ -94,6 +94,38 @@ export async function sendVerificationEmail(email: string, url: string) {
   });
 }
 
+// ── New signup notification to admins ──
+export async function sendNewSignupNotification(newUserEmail: string, adminEmail: string) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+  const usersUrl = `${appUrl}/admin/users`;
+
+  if (!isSmtpConfigured()) {
+    console.log("\n--- New Signup Notification (SMTP not configured) ---");
+    console.log(`New user: ${newUserEmail}`);
+    console.log(`Review at: ${usersUrl}`);
+    console.log("---\n");
+    return;
+  }
+
+  const transporter = getTransporter();
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM,
+    to: adminEmail,
+    subject: `New signup: ${newUserEmail}`,
+    html: baseHtml(
+      "New user awaiting approval",
+      `<p style="color:#4b5563;margin:0 0 16px;">
+        A new account has been created and is waiting for your approval.
+      </p>
+      <p style="color:#121212;font-weight:600;margin:0 0 20px;">${newUserEmail}</p>
+      ${ctaButton(usersUrl, "Review in Admin Panel")}
+      <p style="color:#9ca3af;font-size:13px;margin-top:16px;">
+        New accounts are set to <strong>pending</strong> by default and cannot log in until approved.
+      </p>`
+    ),
+  });
+}
+
 // ── Password reset ──
 export async function sendPasswordResetEmail(email: string, url: string) {
   if (!isSmtpConfigured()) {
