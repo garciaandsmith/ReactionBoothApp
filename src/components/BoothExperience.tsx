@@ -27,19 +27,33 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
       setUploadProgress(0);
 
       try {
-        await upload(
+        const result = await upload(
           `reactions/${reaction.id}/reaction-${Date.now()}.webm`,
           blob,
           {
             access: "public",
             handleUploadUrl: `/api/reactions/${reaction.id}/upload`,
-            // Pass events through so the server can persist them on completion
-            clientPayload: JSON.stringify(events),
             onUploadProgress: ({ percentage }) => {
               setUploadProgress(Math.round(percentage));
             },
           }
         );
+
+        // Explicitly persist the blob URL + event log to the DB.
+        // This is done via PATCH (not relying on the webhook in onUploadCompleted)
+        // so the data is guaranteed to be saved before we navigate to "done".
+        const res = await fetch(`/api/reactions/${reaction.id}/upload`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            blobUrl: result.url,
+            eventsJson: JSON.stringify(events),
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || "Failed to save recording");
+        }
 
         setUploadProgress(100);
         setStep("done");
