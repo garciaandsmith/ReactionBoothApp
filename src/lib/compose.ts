@@ -2,7 +2,13 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { join } from "path";
 import { mkdtemp, rm } from "fs/promises";
+import { createWriteStream } from "fs";
 import { tmpdir } from "os";
+import { pipeline } from "stream/promises";
+// ffmpeg-static ships a pre-compiled static binary inside node_modules —
+// no system ffmpeg needed, works in Vercel Lambda.
+import ffmpegPath from "ffmpeg-static";
+import ytdl from "@distube/ytdl-core";
 import type { ReactionEventLog, WatchLayout, ComposeVolumeSettings } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -27,35 +33,16 @@ interface TimelineSegment {
 const BRAND_HEX = "0x2EE6A6"; // ffmpeg pad-filter format (no #)
 const BRAND_TEXT = "ReactionBooth";
 
-async function commandExists(cmd: string): Promise<boolean> {
-  try {
-    await execFileAsync(process.platform === "win32" ? "where" : "which", [cmd]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function checkDependencies(): Promise<{ ffmpeg: boolean; ytdlp: boolean }> {
-  const [ffmpeg, ytdlp] = await Promise.all([
-    commandExists("ffmpeg"),
-    commandExists("yt-dlp"),
-  ]);
-  return { ffmpeg, ytdlp };
-}
-
 export async function downloadYouTube(
   videoUrl: string,
   outputPath: string
 ): Promise<void> {
-  await execFileAsync("yt-dlp", [
-    "-f", "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/best",
-    "--merge-output-format", "mp4",
-    "-o", outputPath,
-    "--no-playlist",
-    "--no-check-certificates",
-    videoUrl,
-  ], { timeout: 120000 });
+  const writeStream = createWriteStream(outputPath);
+  const videoStream = ytdl(videoUrl, {
+    filter: "audioandvideo",
+    quality: "highest",
+  });
+  await pipeline(videoStream as unknown as NodeJS.ReadableStream, writeStream);
 }
 
 function buildTimeline(events: ReactionEventLog): TimelineSegment[] {
@@ -172,20 +159,14 @@ function buildFilterGraph(
   // Video compositing — brand color canvas + precise overlay placement
   const isPip = layout.startsWith("pip-");
   const dur = totalDurationS.toFixed(3);
-  // Watermark: fully opaque for free tier, subtle for pro (always present as branding)
   const wmColor = watermark ? "white" : "white@0.5";
 
   if (isPip) {
-    // Canvas: 1920×1080 brand color
-    // YouTube: 1485×835 at (65, 65) — top-left, 65 px margin
-    // Webcam:  674×380 at corner, 65 px margin from edges
     filters.push(`[ytv]scale=1485:835:force_original_aspect_ratio=increase,crop=1485:835[yt_s]`);
     filters.push(`[1:v]scale=674:380:force_original_aspect_ratio=increase,crop=674:380[wc_s]`);
     filters.push(`color=c=${BRAND_HEX}:s=1920x1080:d=${dur}[canvas]`);
     filters.push(`[canvas][yt_s]overlay=65:65[with_yt]`);
 
-    // Webcam corner positions (65 px margin; canvas 1920×1080, webcam 674×380)
-    // right edge: 1920 - 65 - 674 = 1181  |  bottom edge: 1080 - 65 - 380 = 635
     let wcX: string;
     let wcY: string;
     switch (layout) {
@@ -196,40 +177,27 @@ function buildFilterGraph(
       default:                 wcX = "1181"; wcY = "635";
     }
     filters.push(`[with_yt][wc_s]overlay=${wcX}:${wcY}[vid_comp]`);
-
-    // Watermark text in the bottom-left brand color strip (below YouTube at y≈900, left of webcam)
     filters.push(
       `[vid_comp]drawtext=text='${BRAND_TEXT}':fontsize=20:fontcolor=${wmColor}:x=70:y=1023[outv]`
     );
 
   } else if (layout === "side-by-side") {
-    // Canvas: 1920×1080 brand color
-    // YouTube: 930×540 center-crop, at (0, 270)   — flush left, centered vertically
-    // Webcam:  930×540 center-crop, at (990, 270)  — flush right, centered vertically
-    // Brand color visible: 60 px center divider (x=930–990), 270 px top/bottom borders
     filters.push(`[ytv]scale=930:540:force_original_aspect_ratio=increase,crop=930:540[yt_s]`);
     filters.push(`[1:v]scale=930:540:force_original_aspect_ratio=increase,crop=930:540[wc_s]`);
     filters.push(`color=c=${BRAND_HEX}:s=1920x1080:d=${dur}[canvas]`);
     filters.push(`[canvas][yt_s]overlay=0:270[with_yt]`);
     filters.push(`[with_yt][wc_s]overlay=990:270[vid_comp]`);
-
-    // Watermark text centered in the bottom border (y≈945, center of the 270 px bottom strip)
     filters.push(
       `[vid_comp]drawtext=text='${BRAND_TEXT}':fontsize=20:fontcolor=${wmColor}:x=(w-text_w)/2:y=945[outv]`
     );
 
   } else {
-    // stacked — Canvas: 1080×1920 brand color
-    // YouTube: 1080×920 center-crop, at (0, 0)    — flush top
-    // Webcam:  1080×920 center-crop, at (0, 1000) — flush bottom (920 + 80 gap = 1000)
-    // Brand color visible: 80 px horizontal bar at y=920–1000 (vertical middle)
+    // stacked
     filters.push(`[ytv]scale=1080:920:force_original_aspect_ratio=increase,crop=1080:920[yt_s]`);
     filters.push(`[1:v]scale=1080:920:force_original_aspect_ratio=increase,crop=1080:920[wc_s]`);
     filters.push(`color=c=${BRAND_HEX}:s=1080x1920:d=${dur}[canvas]`);
     filters.push(`[canvas][yt_s]overlay=0:0[with_yt]`);
     filters.push(`[with_yt][wc_s]overlay=0:1000[vid_comp]`);
-
-    // Watermark text centered in the 80 px middle bar (center = y=960)
     filters.push(
       `[vid_comp]drawtext=text='${BRAND_TEXT}':fontsize=20:fontcolor=${wmColor}:x=(w-text_w)/2:y=940[outv]`
     );
@@ -248,6 +216,8 @@ export async function composeReaction(options: ComposeOptions): Promise<void> {
     volume = { youtubeVolume: 100, webcamVolume: 100 },
   } = options;
 
+  if (!ffmpegPath) throw new Error("ffmpeg-static binary not found");
+
   const segments = buildTimeline(eventsLog);
   const totalDurationS = eventsLog.recordingDurationMs / 1000;
 
@@ -258,7 +228,7 @@ export async function composeReaction(options: ComposeOptions): Promise<void> {
     await downloadYouTube(eventsLog.videoUrl, ytPath);
     const filterGraph = buildFilterGraph(segments, layout, totalDurationS, watermark, volume);
 
-    await execFileAsync("ffmpeg", [
+    await execFileAsync(ffmpegPath, [
       "-y",
       "-i", ytPath,
       "-i", webcamPath,
