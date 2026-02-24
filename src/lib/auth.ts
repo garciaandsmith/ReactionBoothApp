@@ -3,12 +3,6 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "./prisma";
 import bcrypt from "bcryptjs";
 
-const smtpConfigured = !!(
-  process.env.SMTP_HOST &&
-  process.env.SMTP_HOST !== "smtp.example.com" &&
-  process.env.SMTP_USER
-);
-
 const providers: NextAuthOptions["providers"] = [
   CredentialsProvider({
     name: "credentials",
@@ -35,26 +29,6 @@ const providers: NextAuthOptions["providers"] = [
     },
   }),
 ];
-
-if (smtpConfigured) {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const EmailProvider = require("next-auth/providers/email").default;
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { sendMagicLinkEmail } = require("./email");
-  providers.push(
-    EmailProvider({
-      sendVerificationRequest: async ({
-        identifier: email,
-        url,
-      }: {
-        identifier: string;
-        url: string;
-      }) => {
-        await sendMagicLinkEmail(email, url);
-      },
-    })
-  );
-}
 
 export const authOptions: NextAuthOptions = {
   providers,

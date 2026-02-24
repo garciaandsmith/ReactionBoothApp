@@ -1,88 +1,93 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
+import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
+import { put } from "@vercel/blob";
 
-async function saveLocally(filename: string, file: File): Promise<string> {
-  const parts = filename.split("/");
-  const dir = join(process.cwd(), "uploads", ...parts.slice(0, -1));
-  await mkdir(dir, { recursive: true });
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await writeFile(join(process.cwd(), "uploads", filename), buffer);
-  return `/api/uploads/${filename}`;
-}
-
-async function saveJsonLocally(filename: string, content: string): Promise<string> {
-  const parts = filename.split("/");
-  const dir = join(process.cwd(), "uploads", ...parts.slice(0, -1));
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(process.cwd(), "uploads", filename), content, "utf-8");
-  return `/api/uploads/${filename}`;
-}
-
+// POST — used by the Vercel Blob client SDK for two things:
+//   1. Generating a client upload token (blob.generate-client-token)
+//   2. Acknowledging upload completion webhook (blob.upload-completed)
+//   The actual DB update is done explicitly by the client via PATCH to
+//   avoid webhook timing races.
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const body = (await request.json()) as HandleUploadBody;
+
   try {
+    const jsonResponse = await handleUpload({
+      body,
+      request,
+      onBeforeGenerateToken: async () => {
+        const reaction = await prisma.reaction.findUnique({
+          where: { id: params.id },
+        });
+        if (!reaction) throw new Error("Reaction not found");
+
+        return {
+          allowedContentTypes: ["video/webm", "video/mp4", "video/quicktime"],
+          maximumSizeInBytes: 500 * 1024 * 1024, // 500 MB
+        };
+      },
+      // DB update is handled by PATCH below; nothing to do here.
+      onUploadCompleted: async () => {},
+    });
+
+    return NextResponse.json(jsonResponse);
+  } catch (error) {
+    console.error("Error handling upload token:", error);
+    return NextResponse.json(
+      { error: (error as Error).message ?? "Upload failed" },
+      { status: 400 }
+    );
+  }
+}
+
+// PATCH — called by the client after the Vercel Blob upload resolves,
+//   passing the final blob URL + events JSON for DB persistence.
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const { blobUrl, eventsJson } = (await request.json()) as {
+      blobUrl: string;
+      eventsJson: string | null;
+    };
+
     const reaction = await prisma.reaction.findUnique({
       where: { id: params.id },
     });
-
     if (!reaction) {
-      return NextResponse.json(
-        { error: "Reaction not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Reaction not found" }, { status: 404 });
     }
-
-    const formData = await request.formData();
-    const file = formData.get("recording") as File;
-    const eventsJson = formData.get("events") as string | null;
-
-    if (!file) {
-      return NextResponse.json(
-        { error: "No recording file provided" },
-        { status: 400 }
-      );
-    }
-
-    const timestamp = Date.now();
-    const videoFilename = `reactions/${reaction.id}/reaction-${timestamp}.webm`;
-    const eventsFilename = `reactions/${reaction.id}/events-${timestamp}.json`;
 
     let eventsUrl: string | null = null;
-
-    const recordingUrl = await saveLocally(videoFilename, file);
-
     if (eventsJson) {
-      eventsUrl = await saveJsonLocally(eventsFilename, eventsJson);
+      const eventsBlob = await put(
+        `reactions/${params.id}/events-${Date.now()}.json`,
+        eventsJson,
+        { access: "public" }
+      );
+      eventsUrl = eventsBlob.url;
     }
 
-    const updated = await prisma.reaction.update({
-      where: { id: reaction.id },
+    await prisma.reaction.update({
+      where: { id: params.id },
       data: {
-        recordingUrl,
+        recordingUrl: blobUrl,
         eventsUrl,
-        composedUrl: recordingUrl,
+        composedUrl: blobUrl,
         status: "completed",
         completedAt: new Date(),
       },
     });
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const watchUrl = `${appUrl}/watch/${reaction.id}`;
-
-    return NextResponse.json({
-      id: updated.id,
-      recordingUrl,
-      eventsUrl,
-      watchUrl,
-    });
+    return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Error uploading recording:", error);
+    console.error("Error completing upload:", error);
     return NextResponse.json(
-      { error: "Failed to upload recording" },
+      { error: "Failed to save recording" },
       { status: 500 }
     );
   }

@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import Image from "next/image";
+import { upload } from "@vercel/blob/client";
 import DualRecorder from "./DualRecorder";
 import type { ReactionEventLog } from "@/lib/types";
 
@@ -26,24 +27,32 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
       setUploadProgress(0);
 
       try {
-        const formData = new FormData();
-        formData.append("recording", blob, "reaction.webm");
-        formData.append("events", JSON.stringify(events));
+        const result = await upload(
+          `reactions/${reaction.id}/reaction-${Date.now()}.webm`,
+          blob,
+          {
+            access: "public",
+            handleUploadUrl: `/api/reactions/${reaction.id}/upload`,
+            onUploadProgress: ({ percentage }) => {
+              setUploadProgress(Math.round(percentage));
+            },
+          }
+        );
 
-        const progressInterval = setInterval(() => {
-          setUploadProgress((prev) => Math.min(prev + 10, 90));
-        }, 500);
-
+        // Explicitly persist the blob URL + event log to the DB.
+        // This is done via PATCH (not relying on the webhook in onUploadCompleted)
+        // so the data is guaranteed to be saved before we navigate to "done".
         const res = await fetch(`/api/reactions/${reaction.id}/upload`, {
-          method: "POST",
-          body: formData,
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            blobUrl: result.url,
+            eventsJson: JSON.stringify(events),
+          }),
         });
-
-        clearInterval(progressInterval);
-
         if (!res.ok) {
           const data = await res.json();
-          throw new Error(data.error || "Upload failed");
+          throw new Error(data.error || "Failed to save recording");
         }
 
         setUploadProgress(100);

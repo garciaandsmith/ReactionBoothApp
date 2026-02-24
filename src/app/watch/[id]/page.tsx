@@ -26,11 +26,19 @@ async function fetchEvents(eventsUrl: string | null) {
   if (!eventsUrl) return null;
 
   try {
+    // Legacy: local filesystem path used before Vercel Blob migration
     if (eventsUrl.startsWith("/api/uploads/")) {
       const relativePath = eventsUrl.replace("/api/uploads/", "");
       const filePath = join(process.cwd(), "uploads", relativePath);
       const data = await readFile(filePath, "utf-8");
       return JSON.parse(data);
+    }
+
+    // Vercel Blob (or any public HTTPS URL)
+    if (eventsUrl.startsWith("https://")) {
+      const res = await fetch(eventsUrl);
+      if (!res.ok) return null;
+      return await res.json();
     }
   } catch (e) {
     console.error("Failed to fetch events:", e);

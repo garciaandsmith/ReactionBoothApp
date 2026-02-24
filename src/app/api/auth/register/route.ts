@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import { sendNewSignupNotification } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,15 @@ export async function POST(request: NextRequest) {
     const user = await prisma.user.create({
       data: { email, passwordHash, status: "pending" },
     });
+
+    // Notify all admins — fire-and-forget, never block the response
+    prisma.user.findMany({ where: { role: "admin" }, select: { email: true } })
+      .then((admins) =>
+        Promise.allSettled(
+          admins.map((a) => sendNewSignupNotification(email, a.email))
+        )
+      )
+      .catch((err) => console.error("Admin signup notification failed:", err));
 
     return NextResponse.json({ id: user.id, email: user.email, status: "pending" });
   } catch (error) {

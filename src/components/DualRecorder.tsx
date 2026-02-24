@@ -41,6 +41,10 @@ export default function DualRecorder({
   const recordingStartRef = useRef<number>(0);
   const pendingEventLogRef = useRef<ReactionEventLog | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const isRecordingRef = useRef(false);
+  // Stable ref so handleYouTubeStateChange can call stopDualRecording
+  // without a forward-reference issue or stale closure.
+  const stopDualRecordingRef = useRef<() => void>(() => {});
 
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [permissionGranted, setPermissionGranted] = useState(false);
@@ -81,7 +85,7 @@ export default function DualRecorder({
 
   const handleYouTubeStateChange = useCallback(
     (state: number, videoTime: number) => {
-      if (!isRecording) return;
+      if (!isRecordingRef.current) return;
       const eventType = STATE_MAP[state];
       if (!eventType) return;
 
@@ -97,9 +101,9 @@ export default function DualRecorder({
 
       eventsRef.current.push({ type: eventType, timestampMs: now - recordingStartRef.current, videoTimeS: videoTime });
 
-      if (eventType === "ended") stopDualRecording();
+      if (eventType === "ended") stopDualRecordingRef.current();
     },
-    [isRecording]
+    []
   );
 
   const startDualRecording = useCallback(() => {
@@ -124,6 +128,7 @@ export default function DualRecorder({
     };
 
     mediaRecorder.start(1000);
+    isRecordingRef.current = true;
     youtubeRef.current?.seekTo(0);
     youtubeRef.current?.play();
 
@@ -142,6 +147,7 @@ export default function DualRecorder({
   }, [stream, maxDuration, onRecordingComplete]);
 
   const stopDualRecording = useCallback(() => {
+    isRecordingRef.current = false;
     youtubeRef.current?.pause();
     const durationMs = performance.now() - recordingStartRef.current;
     pendingEventLogRef.current = {
@@ -162,6 +168,9 @@ export default function DualRecorder({
     }
     setIsRecording(false);
   }, [videoUrl]);
+  // Keep the stable ref current so handleYouTubeStateChange always calls
+  // the latest version without a forward-reference in its dep array.
+  stopDualRecordingRef.current = stopDualRecording;
 
   // ── Permission screen ──
   if (!permissionGranted) {
