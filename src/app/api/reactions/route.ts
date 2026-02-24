@@ -5,9 +5,19 @@ import { authOptions } from "@/lib/auth";
 import { extractYouTubeId, isValidYouTubeUrl } from "@/lib/youtube";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { PLANS } from "@/lib/constants";
+import { isMaintenanceMode } from "@/lib/maintenance";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
+    if (await isMaintenanceMode()) {
+      return NextResponse.json(
+        { error: "The site is temporarily paused for maintenance. Please try again later." },
+        { status: 503 }
+      );
+    }
+
     const session = await getServerSession(authOptions);
 
     if (!session?.user?.email) {

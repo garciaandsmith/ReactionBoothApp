@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "src/app/api/reactions/[id]/compose/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/reactions/[id]/upload/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}

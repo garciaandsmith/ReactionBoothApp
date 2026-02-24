@@ -16,7 +16,6 @@ interface User {
 }
 
 type PlanOption = "free" | "pro";
-type StatusOption = "active" | "paused";
 type RoleOption = "user" | "admin";
 
 export default function AdminUsersPage() {

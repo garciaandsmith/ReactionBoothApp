@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import path from "path";
 import fs from "fs/promises";
 
+export const dynamic = "force-dynamic";
+
 const UPLOAD_DIR = path.join(process.cwd(), "uploads", "backgrounds");
 const ALLOWED_TYPES = new Set([
   "image/jpeg", "image/png", "image/webp", "image/gif",
