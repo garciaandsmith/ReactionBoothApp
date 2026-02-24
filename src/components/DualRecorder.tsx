@@ -41,6 +41,7 @@ export default function DualRecorder({
   const recordingStartRef = useRef<number>(0);
   const pendingEventLogRef = useRef<ReactionEventLog | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const isRecordingRef = useRef(false);
 
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [permissionGranted, setPermissionGranted] = useState(false);
@@ -81,7 +82,7 @@ export default function DualRecorder({
 
   const handleYouTubeStateChange = useCallback(
     (state: number, videoTime: number) => {
-      if (!isRecording) return;
+      if (!isRecordingRef.current) return;
       const eventType = STATE_MAP[state];
       if (!eventType) return;
 
@@ -99,7 +100,7 @@ export default function DualRecorder({
 
       if (eventType === "ended") stopDualRecording();
     },
-    [isRecording]
+    [stopDualRecording]
   );
 
   const startDualRecording = useCallback(() => {
@@ -124,6 +125,7 @@ export default function DualRecorder({
     };
 
     mediaRecorder.start(1000);
+    isRecordingRef.current = true;
     youtubeRef.current?.seekTo(0);
     youtubeRef.current?.play();
 
@@ -142,6 +144,7 @@ export default function DualRecorder({
   }, [stream, maxDuration, onRecordingComplete]);
 
   const stopDualRecording = useCallback(() => {
+    isRecordingRef.current = false;
     youtubeRef.current?.pause();
     const durationMs = performance.now() - recordingStartRef.current;
     pendingEventLogRef.current = {
