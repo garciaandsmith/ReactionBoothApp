@@ -33,14 +33,36 @@ interface TimelineSegment {
 const BRAND_HEX = "0x2EE6A6"; // ffmpeg pad-filter format (no #)
 const BRAND_TEXT = "ReactionBooth";
 
+function makeYtdlAgent(): ReturnType<typeof ytdl.createAgent> | undefined {
+  const raw = process.env.YOUTUBE_COOKIES;
+  if (!raw) return undefined;
+  const cookies: ytdl.Cookie[] = raw.split(";").flatMap((pair) => {
+    const eq = pair.indexOf("=");
+    if (eq === -1) return [];
+    return [
+      {
+        name: pair.slice(0, eq).trim(),
+        value: pair.slice(eq + 1).trim(),
+        domain: ".youtube.com",
+        path: "/",
+        secure: true,
+        httpOnly: false,
+      },
+    ];
+  });
+  return ytdl.createAgent(cookies);
+}
+
 export async function downloadYouTube(
   videoUrl: string,
   outputPath: string
 ): Promise<void> {
   const writeStream = createWriteStream(outputPath);
+  const agent = makeYtdlAgent();
   const videoStream = ytdl(videoUrl, {
     filter: "audioandvideo",
     quality: "highest",
+    ...(agent && { agent }),
   });
   await pipeline(videoStream as unknown as NodeJS.ReadableStream, writeStream);
 }
