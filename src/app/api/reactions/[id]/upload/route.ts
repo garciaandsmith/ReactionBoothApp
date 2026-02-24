@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { handleUpload, put, type HandleUploadBody } from "@vercel/blob/server";
+import { handleUpload, put, type HandleUploadBody } from "@vercel/blob";
 
 export async function POST(
   request: NextRequest,
