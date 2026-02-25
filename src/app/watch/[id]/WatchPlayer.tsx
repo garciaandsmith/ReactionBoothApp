@@ -268,6 +268,7 @@ export default function WatchPlayer({
       )?.[1];
       if (vidId) {
         thumbImg = new Image();
+        thumbImg.crossOrigin = "anonymous";
         thumbImg.src = `https://img.youtube.com/vi/${vidId}/maxresdefault.jpg`;
         thumbImg.onerror = () => { thumbImg = null; };
       }
