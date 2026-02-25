@@ -356,7 +356,26 @@ export default function WatchPlayer({
       typeof VideoFrame              !== "undefined" &&
       typeof MediaStreamTrackProcessor !== "undefined";
 
+    // Verify that the browser can actually encode H.264 at our target resolution
+    // before committing to the WebCodecs path (e.g. Linux Chrome without a
+    // hardware encoder reports WebCodecs as available but fails at configure()).
+    let useWebCodecs = false;
     if (hasWebCodecs) {
+      try {
+        const check = await VideoEncoder.isConfigSupported({
+          codec: "avc1.42001f",
+          width: CW,
+          height: CH,
+          bitrate: 8_000_000,
+          framerate: 30,
+        });
+        useWebCodecs = check.supported ?? false;
+      } catch {
+        useWebCodecs = false;
+      }
+    }
+
+    if (useWebCodecs) {
       const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
       const muxTarget = new ArrayBufferTarget();
       const muxer = new Muxer({
@@ -368,7 +387,15 @@ export default function WatchPlayer({
 
       const videoEncoder = new VideoEncoder({
         output: (chunk, meta) => muxer.addVideoChunk(chunk, meta!),
-        error:  (e) => console.error("VideoEncoder:", e),
+        error: (e) => {
+          console.error("VideoEncoder:", e);
+          if (!active) return;
+          active = false;
+          cancelAnimationFrame(drawLoopRef.current);
+          if (canvas.parentNode) document.body.removeChild(canvas);
+          stopRecordingRef.current = null;
+          setDownloadState({ status: "error", message: e.message ?? "Video encoding failed" });
+        },
       });
       videoEncoder.configure({
         codec:                 "avc1.42001f", // H.264 Baseline 3.1
