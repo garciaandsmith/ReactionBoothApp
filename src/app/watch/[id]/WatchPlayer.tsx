@@ -23,9 +23,7 @@ interface WatchPlayerProps {
 
 type DownloadState =
   | { status: "idle" }
-  | { status: "composing" }
   | { status: "capturing" }
-  | { status: "ready"; url: string }
   | { status: "error"; message: string };
 
 function formatTime(s: number) {
@@ -45,15 +43,12 @@ export default function WatchPlayer({
   const syncFrameRef = useRef<number>(0);
   const captureMediaRecorderRef = useRef<MediaRecorder | null>(null);
   const captureStreamRef = useRef<MediaStream | null>(null);
+  const drawLoopRef = useRef<number>(0);
+  const recordingAudioCtxRef = useRef<AudioContext | null>(null);
   const [youtubeReady, setYoutubeReady] = useState(false);
-  const [hasDisplayMedia, setHasDisplayMedia] = useState(false);
   const [downloadUsed, setDownloadUsed] = useState(
     senderPlan === "free" && reaction.downloadCount >= 1
   );
-
-  useEffect(() => {
-    setHasDisplayMedia(!!navigator.mediaDevices?.getDisplayMedia);
-  }, []);
   const [downloadState, setDownloadState] = useState<DownloadState>({
     status: "idle",
   });
@@ -233,136 +228,227 @@ export default function WatchPlayer({
     if (webcamRef.current) webcamRef.current.currentTime = t;
   }, []);
 
-  // --- Download with compositing ---
-  const triggerCompose = useCallback(async () => {
-    if (downloadUsed) return;
+  const hasEvents = !!(events && events.events.length > 0);
 
-    if (!events || events.events.length === 0) {
-      window.open(`/api/reactions/${reaction.id}/download`, "_blank");
-      if (senderPlan === "free") setDownloadUsed(true);
-      return;
-    }
-
-    setDownloadState({ status: "composing" });
-
-    try {
-      const res = await fetch(`/api/reactions/${reaction.id}/compose`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          layout: selectedLayout,
-          youtubeVolume: ytVolume,
-          webcamVolume: wcVolume,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setDownloadState({
-          status: "error",
-          message: data.error || "Compositing failed",
-        });
-        return;
-      }
-
-      setDownloadState({ status: "ready", url: data.composedUrl });
-
-      if (senderPlan === "free") {
-        setDownloadUsed(true);
-      }
-    } catch {
-      setDownloadState({
-        status: "error",
-        message: "Network error. Please try again.",
-      });
-    }
-  }, [downloadUsed, events, reaction.id, senderPlan, selectedLayout, ytVolume, wcVolume]);
-
-  // --- Browser capture ---
+  // --- Offscreen canvas HD recording (invisible to the user) ---
   const capturePreview = useCallback(async () => {
-    if (!webcamRef.current) return;
+    const webcam = webcamRef.current;
+    if (!webcam || downloadUsed) return;
 
-    // Request tab capture. preferCurrentTab is Chrome-only (not in TS types).
-    let stream: MediaStream;
-    try {
-      stream = await (navigator.mediaDevices.getDisplayMedia as (
-        c: Record<string, unknown>
-      ) => Promise<MediaStream>)({
-        video: { frameRate: { ideal: 30 } },
-        audio: true,
-        preferCurrentTab: true,
-      });
-    } catch {
-      // User cancelled the share dialog — stay idle.
-      return;
+    const isStackedLayout = selectedLayout === "stacked";
+    // HD canvas: 1920×1080 for landscape layouts, 1080×1920 for stacked (portrait)
+    const CW = isStackedLayout ? 1080 : 1920;
+    const CH = isStackedLayout ? 1920 : 1080;
+
+    // Create hidden canvas positioned off-screen
+    const canvas = document.createElement("canvas");
+    canvas.width = CW;
+    canvas.height = CH;
+    canvas.style.cssText =
+      "position:fixed;top:-99999px;left:-99999px;width:1px;height:1px;pointer-events:none;opacity:0;";
+    document.body.appendChild(canvas);
+
+    const ctx = canvas.getContext("2d")!;
+
+    // Pixel positions that mirror the CSS layout percentages used in the preview
+    const getPositions = () => {
+      if (!hasEvents) {
+        return { yt: null, wc: { x: 0, y: 0, w: CW, h: CH } };
+      }
+      if (selectedLayout.startsWith("pip-")) {
+        const ytX = Math.round(0.03385 * CW);
+        const ytY = Math.round(0.06019 * CH);
+        const ytW = Math.round(0.77344 * CW);
+        const ytH = Math.round(0.77315 * CH);
+        const wcW = Math.round(0.35104 * CW);
+        const wcH = Math.round((wcW * 9) / 16);
+        const mx = Math.round(0.03385 * CW);
+        const my = Math.round(0.06019 * CH);
+        let wcX = 0, wcY = 0;
+        if      (selectedLayout === "pip-bottom-right") { wcX = CW - mx - wcW; wcY = CH - my - wcH; }
+        else if (selectedLayout === "pip-bottom-left")  { wcX = mx;            wcY = CH - my - wcH; }
+        else if (selectedLayout === "pip-top-right")    { wcX = CW - mx - wcW; wcY = my; }
+        else                                            { wcX = mx;            wcY = my; } // pip-top-left
+        return { yt: { x: ytX, y: ytY, w: ytW, h: ytH }, wc: { x: wcX, y: wcY, w: wcW, h: wcH } };
+      }
+      if (selectedLayout === "side-by-side") {
+        return {
+          yt: { x: 0,                        y: Math.round(0.25 * CH), w: Math.round(0.48438 * CW), h: Math.round(0.5 * CH) },
+          wc: { x: Math.round(0.51563 * CW), y: Math.round(0.25 * CH), w: Math.round(0.48438 * CW), h: Math.round(0.5 * CH) },
+        };
+      }
+      // stacked
+      const h = Math.round(0.47917 * CH);
+      return {
+        yt: { x: 0, y: 0,      w: CW, h },
+        wc: { x: 0, y: CH - h, w: CW, h },
+      };
+    };
+
+    const positions = getPositions();
+
+    // Start loading the YouTube thumbnail (non-blocking — drawn once complete)
+    let thumbImg: HTMLImageElement | null = null;
+    if (hasEvents) {
+      const vidId = reaction.videoUrl.match(
+        /(?:v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/
+      )?.[1];
+      if (vidId) {
+        thumbImg = new Image();
+        // No crossOrigin attr — canvas.captureStream() is not restricted by taint
+        thumbImg.src = `https://img.youtube.com/vi/${vidId}/maxresdefault.jpg`;
+        thumbImg.onerror = () => { thumbImg = null; };
+      }
     }
+
+    // Route webcam audio through Web Audio API so we can capture it independently
+    // of the YouTube iframe (which is cross-origin and cannot be tapped).
+    let audioDestTrack: MediaStreamTrack | null = null;
+    try {
+      const audioCtx = new AudioContext();
+      recordingAudioCtxRef.current = audioCtx;
+      const dest = audioCtx.createMediaStreamDestination();
+      const src  = audioCtx.createMediaElementSource(webcam);
+      const gain = audioCtx.createGain();
+      gain.gain.value = Math.min(wcVolume / 100, 2.0); // supports 0–200 %
+      src.connect(gain);
+      gain.connect(dest);
+      gain.connect(audioCtx.destination); // keep audio audible during playback
+      audioDestTrack = dest.stream.getAudioTracks()[0] ?? null;
+    } catch {
+      // AudioContext unavailable — record video-only
+    }
+
+    // Build MediaStream: canvas video track + optional webcam audio track
+    const canvasStream = canvas.captureStream(30);
+    const tracks: MediaStreamTrack[] = [...canvasStream.getVideoTracks()];
+    if (audioDestTrack) tracks.push(audioDestTrack);
+    const combinedStream = new MediaStream(tracks);
 
     const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
       ? "video/webm;codecs=vp9,opus"
       : "video/webm";
-    const mediaRecorder = new MediaRecorder(stream, { mimeType });
+
+    const mediaRecorder = new MediaRecorder(combinedStream, {
+      mimeType,
+      videoBitsPerSecond: 8_000_000, // 8 Mbps → crisp 1080p
+    });
     const chunks: BlobPart[] = [];
 
     mediaRecorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunks.push(e.data);
     };
 
-    mediaRecorder.onstop = () => {
-      stream.getTracks().forEach((t) => t.stop());
+    const cleanup = () => {
+      cancelAnimationFrame(drawLoopRef.current);
+      drawLoopRef.current = 0;
+      if (canvas.parentNode) document.body.removeChild(canvas);
+      combinedStream.getTracks().forEach((t) => t.stop());
+      recordingAudioCtxRef.current?.close().catch(() => {});
+      recordingAudioCtxRef.current = null;
       captureMediaRecorderRef.current = null;
       captureStreamRef.current = null;
+    };
 
+    mediaRecorder.onstop = () => {
+      cleanup();
+      if (senderPlan === "free") setDownloadUsed(true);
       const blob = new Blob(chunks, { type: mimeType });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
       a.download = `reaction-${reaction.id}.webm`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 30_000);
       setDownloadState({ status: "idle" });
     };
 
-    // If the user closes the browser's "Stop sharing" bar, treat it as a stop.
-    stream.getTracks().forEach((track) => {
-      track.onended = () => {
-        webcamRef.current?.pause();
-        if (captureMediaRecorderRef.current?.state !== "inactive") {
-          captureMediaRecorderRef.current?.stop();
-        }
-      };
-    });
-
     captureMediaRecorderRef.current = mediaRecorder;
-    captureStreamRef.current = stream;
+    captureStreamRef.current = combinedStream;
 
-    // Reset playhead, enter capturing state, then start recording + playback.
-    webcamRef.current.currentTime = 0;
+    // ── Draw loop — runs entirely off-screen at 30 fps ──────────────────────
+    const drawFrame = () => {
+      // Black background
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, CW, CH);
+
+      // YouTube content area
+      if (hasEvents && positions.yt) {
+        const { x, y, w, h } = positions.yt;
+        if (thumbImg && thumbImg.complete && thumbImg.naturalWidth > 0) {
+          try { ctx.drawImage(thumbImg, x, y, w, h); } catch { /* taint guard */ }
+          // Semi-transparent overlay so it reads as "source video"
+          ctx.fillStyle = "rgba(0,0,0,0.28)";
+          ctx.fillRect(x, y, w, h);
+        } else {
+          ctx.fillStyle = "#111827";
+          ctx.fillRect(x, y, w, h);
+        }
+      }
+
+      // Webcam video
+      if (webcam.readyState >= 2 /* HAVE_CURRENT_DATA */) {
+        try {
+          ctx.drawImage(webcam, positions.wc.x, positions.wc.y, positions.wc.w, positions.wc.h);
+        } catch { /* skip frame on error */ }
+      }
+
+      // Watermark (mirrors CSS logic)
+      if (reaction.watermarked) {
+        const fs = Math.max(13, Math.round(CW * 0.007));
+        ctx.save();
+        ctx.font         = `500 ${fs}px system-ui, sans-serif`;
+        ctx.fillStyle    = "rgba(255,255,255,0.65)";
+        ctx.textBaseline = "bottom";
+        const pad = Math.round(CW * 0.008);
+        ctx.fillText(
+          "ReactionBooth",
+          positions.wc.x + pad,
+          positions.wc.y + positions.wc.h - pad
+        );
+        ctx.restore();
+      }
+
+      drawLoopRef.current = requestAnimationFrame(drawFrame);
+    };
+
+    // Reset playhead, enter capturing state, then kick off recording + playback
+    webcam.currentTime = 0;
     setDownloadState({ status: "capturing" });
-    // Small delay so the tab renders the reset state before recording starts.
-    await new Promise<void>((r) => setTimeout(r, 300));
-    mediaRecorder.start(1000);
-    // Existing sync mechanism takes over once webcam plays.
-    webcamRef.current.play();
+    // Brief pause so the webcam element settles before we start drawing
+    await new Promise<void>((r) => setTimeout(r, 200));
 
-    // Stop recording when playback reaches the end.
-    const onWebcamEnded = () => {
+    drawLoopRef.current = requestAnimationFrame(drawFrame);
+    mediaRecorder.start(1000);
+    // Existing sync mechanism drives YouTube in sync once webcam plays
+    webcam.play();
+
+    const onEnded = () => {
       if (captureMediaRecorderRef.current?.state !== "inactive") {
         captureMediaRecorderRef.current?.stop();
       }
-      webcamRef.current?.removeEventListener("ended", onWebcamEnded);
+      webcam.removeEventListener("ended", onEnded);
     };
-    webcamRef.current.addEventListener("ended", onWebcamEnded);
-  }, [reaction.id]);
+    webcam.addEventListener("ended", onEnded);
+  }, [
+    downloadUsed,
+    hasEvents,
+    reaction.id,
+    reaction.videoUrl,
+    reaction.watermarked,
+    selectedLayout,
+    senderPlan,
+    wcVolume,
+  ]);
 
   const stopCapture = useCallback(() => {
     webcamRef.current?.pause();
+    cancelAnimationFrame(drawLoopRef.current);
     if (captureMediaRecorderRef.current?.state !== "inactive") {
       captureMediaRecorderRef.current?.stop();
     }
   }, []);
 
-  const hasEvents = events && events.events.length > 0;
   const isPip = selectedLayout.startsWith("pip-");
   const isStacked = selectedLayout === "stacked";
 
@@ -634,41 +720,25 @@ export default function WatchPlayer({
       <div className="flex flex-col items-center gap-4">
         {downloadState.status === "idle" && (
           <div className="flex flex-col items-center gap-2">
-            {hasDisplayMedia && hasEvents ? (
-              <>
-                <button
-                  onClick={capturePreview}
-                  disabled={downloadUsed}
-                  className={`px-6 py-3 rounded-xl font-medium transition-colors ${
-                    downloadUsed
-                      ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                      : "bg-brand text-soft-black hover:bg-brand-600"
-                  }`}
-                >
-                  {downloadUsed ? "Download Used" : `Record as ${LAYOUTS[selectedLayout]}`}
-                </button>
-                {!downloadUsed && (
-                  <p className="text-xs text-gray-400">
-                    Plays back the preview in your browser and captures it — no server upload needed.
-                  </p>
-                )}
-              </>
-            ) : (
-              <button
-                onClick={triggerCompose}
-                disabled={downloadUsed}
-                className={`px-6 py-3 rounded-xl font-medium transition-colors ${
-                  downloadUsed
-                    ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                    : "bg-brand text-soft-black hover:bg-brand-600"
-                }`}
-              >
-                {downloadUsed
-                  ? "Download Used"
-                  : hasEvents
-                  ? `Download as ${LAYOUTS[selectedLayout]}`
-                  : "Download Video"}
-              </button>
+            <button
+              onClick={capturePreview}
+              disabled={downloadUsed}
+              className={`px-6 py-3 rounded-xl font-medium transition-colors ${
+                downloadUsed
+                  ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                  : "bg-brand text-soft-black hover:bg-brand-600"
+              }`}
+            >
+              {downloadUsed
+                ? "Download Used"
+                : hasEvents
+                ? `Record as ${LAYOUTS[selectedLayout]}`
+                : "Save Reaction Video"}
+            </button>
+            {!downloadUsed && (
+              <p className="text-xs text-gray-400">
+                Records the reaction video in your browser at 1080p HD — no uploads or screen sharing required.
+              </p>
             )}
           </div>
         )}
@@ -677,10 +747,10 @@ export default function WatchPlayer({
           <div className="bg-gray-50 rounded-2xl p-6 w-full max-w-md text-center">
             <div className="flex items-center justify-center gap-2 mb-3">
               <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
-              <span className="font-semibold text-gray-900">Recording preview…</span>
+              <span className="font-semibold text-gray-900">Recording in HD…</span>
             </div>
             <p className="text-sm text-gray-500 mb-4">
-              The preview is playing and being captured. It will download automatically when it finishes.
+              The reaction is being recorded at 1080p in the background. It will download automatically when playback finishes.
             </p>
             <button
               onClick={stopCapture}
@@ -691,34 +761,9 @@ export default function WatchPlayer({
           </div>
         )}
 
-        {downloadState.status === "composing" && (
-          <div className="bg-gray-50 rounded-2xl p-6 w-full max-w-md text-center">
-            <div className="w-12 h-12 border-4 border-brand-100 border-t-brand rounded-full animate-spin mx-auto mb-4" />
-            <h3 className="font-semibold text-gray-900 mb-1">Composing your video...</h3>
-            <p className="text-sm text-gray-500">
-              Downloading YouTube source, syncing, and rendering the{" "}
-              {LAYOUTS[selectedLayout].toLowerCase()} layout. This may take a minute or two.
-            </p>
-          </div>
-        )}
-
-        {downloadState.status === "ready" && (
-          <div className="bg-green-50 rounded-2xl p-6 w-full max-w-md text-center">
-            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            </div>
-            <h3 className="font-semibold text-gray-900 mb-3">Video ready!</h3>
-            <a href={downloadState.url} download className="inline-block bg-green-500 text-white px-6 py-3 rounded-xl font-medium hover:bg-green-600 transition-colors">
-              Download .mp4
-            </a>
-          </div>
-        )}
-
         {downloadState.status === "error" && (
           <div className="bg-red-50 rounded-2xl p-6 w-full max-w-md text-center">
-            <p className="text-red-600 font-medium mb-2">Compositing failed</p>
+            <p className="text-red-600 font-medium mb-2">Recording failed</p>
             <p className="text-sm text-red-500 mb-4">{downloadState.message}</p>
             <button onClick={() => setDownloadState({ status: "idle" })} className="text-sm text-red-400 hover:text-red-600">
               Try again
