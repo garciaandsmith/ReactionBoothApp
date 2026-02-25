@@ -24,6 +24,7 @@ interface WatchPlayerProps {
 type DownloadState =
   | { status: "idle" }
   | { status: "composing" }
+  | { status: "capturing" }
   | { status: "ready"; url: string }
   | { status: "error"; message: string };
 
@@ -42,10 +43,17 @@ export default function WatchPlayer({
   const youtubeRef = useRef<YouTubePlayerHandle>(null);
   const webcamRef = useRef<HTMLVideoElement>(null);
   const syncFrameRef = useRef<number>(0);
+  const captureMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const captureStreamRef = useRef<MediaStream | null>(null);
   const [youtubeReady, setYoutubeReady] = useState(false);
+  const [hasDisplayMedia, setHasDisplayMedia] = useState(false);
   const [downloadUsed, setDownloadUsed] = useState(
     senderPlan === "free" && reaction.downloadCount >= 1
   );
+
+  useEffect(() => {
+    setHasDisplayMedia(!!navigator.mediaDevices?.getDisplayMedia);
+  }, []);
   const [downloadState, setDownloadState] = useState<DownloadState>({
     status: "idle",
   });
@@ -270,6 +278,89 @@ export default function WatchPlayer({
       });
     }
   }, [downloadUsed, events, reaction.id, senderPlan, selectedLayout, ytVolume, wcVolume]);
+
+  // --- Browser capture ---
+  const capturePreview = useCallback(async () => {
+    if (!webcamRef.current) return;
+
+    // Request tab capture. preferCurrentTab is Chrome-only (not in TS types).
+    let stream: MediaStream;
+    try {
+      stream = await (navigator.mediaDevices.getDisplayMedia as (
+        c: Record<string, unknown>
+      ) => Promise<MediaStream>)({
+        video: { frameRate: { ideal: 30 } },
+        audio: true,
+        preferCurrentTab: true,
+      });
+    } catch {
+      // User cancelled the share dialog — stay idle.
+      return;
+    }
+
+    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
+      ? "video/webm;codecs=vp9,opus"
+      : "video/webm";
+    const mediaRecorder = new MediaRecorder(stream, { mimeType });
+    const chunks: BlobPart[] = [];
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      captureMediaRecorderRef.current = null;
+      captureStreamRef.current = null;
+
+      const blob = new Blob(chunks, { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `reaction-${reaction.id}.webm`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      setDownloadState({ status: "idle" });
+    };
+
+    // If the user closes the browser's "Stop sharing" bar, treat it as a stop.
+    stream.getTracks().forEach((track) => {
+      track.onended = () => {
+        webcamRef.current?.pause();
+        if (captureMediaRecorderRef.current?.state !== "inactive") {
+          captureMediaRecorderRef.current?.stop();
+        }
+      };
+    });
+
+    captureMediaRecorderRef.current = mediaRecorder;
+    captureStreamRef.current = stream;
+
+    // Reset playhead, enter capturing state, then start recording + playback.
+    webcamRef.current.currentTime = 0;
+    setDownloadState({ status: "capturing" });
+    // Small delay so the tab renders the reset state before recording starts.
+    await new Promise<void>((r) => setTimeout(r, 300));
+    mediaRecorder.start(1000);
+    // Existing sync mechanism takes over once webcam plays.
+    webcamRef.current.play();
+
+    // Stop recording when playback reaches the end.
+    const onWebcamEnded = () => {
+      if (captureMediaRecorderRef.current?.state !== "inactive") {
+        captureMediaRecorderRef.current?.stop();
+      }
+      webcamRef.current?.removeEventListener("ended", onWebcamEnded);
+    };
+    webcamRef.current.addEventListener("ended", onWebcamEnded);
+  }, [reaction.id]);
+
+  const stopCapture = useCallback(() => {
+    webcamRef.current?.pause();
+    if (captureMediaRecorderRef.current?.state !== "inactive") {
+      captureMediaRecorderRef.current?.stop();
+    }
+  }, []);
 
   const hasEvents = events && events.events.length > 0;
   const isPip = selectedLayout.startsWith("pip-");
@@ -542,21 +633,62 @@ export default function WatchPlayer({
       {/* Download */}
       <div className="flex flex-col items-center gap-4">
         {downloadState.status === "idle" && (
-          <button
-            onClick={triggerCompose}
-            disabled={downloadUsed}
-            className={`px-6 py-3 rounded-xl font-medium transition-colors ${
-              downloadUsed
-                ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                : "bg-brand text-soft-black hover:bg-brand-600"
-            }`}
-          >
-            {downloadUsed
-              ? "Download Used"
-              : hasEvents
-              ? `Download as ${LAYOUTS[selectedLayout]}`
-              : "Download Video"}
-          </button>
+          <div className="flex flex-col items-center gap-2">
+            {hasDisplayMedia && hasEvents ? (
+              <>
+                <button
+                  onClick={capturePreview}
+                  disabled={downloadUsed}
+                  className={`px-6 py-3 rounded-xl font-medium transition-colors ${
+                    downloadUsed
+                      ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                      : "bg-brand text-soft-black hover:bg-brand-600"
+                  }`}
+                >
+                  {downloadUsed ? "Download Used" : `Record as ${LAYOUTS[selectedLayout]}`}
+                </button>
+                {!downloadUsed && (
+                  <p className="text-xs text-gray-400">
+                    Plays back the preview in your browser and captures it — no server upload needed.
+                  </p>
+                )}
+              </>
+            ) : (
+              <button
+                onClick={triggerCompose}
+                disabled={downloadUsed}
+                className={`px-6 py-3 rounded-xl font-medium transition-colors ${
+                  downloadUsed
+                    ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                    : "bg-brand text-soft-black hover:bg-brand-600"
+                }`}
+              >
+                {downloadUsed
+                  ? "Download Used"
+                  : hasEvents
+                  ? `Download as ${LAYOUTS[selectedLayout]}`
+                  : "Download Video"}
+              </button>
+            )}
+          </div>
+        )}
+
+        {downloadState.status === "capturing" && (
+          <div className="bg-gray-50 rounded-2xl p-6 w-full max-w-md text-center">
+            <div className="flex items-center justify-center gap-2 mb-3">
+              <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+              <span className="font-semibold text-gray-900">Recording preview…</span>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              The preview is playing and being captured. It will download automatically when it finishes.
+            </p>
+            <button
+              onClick={stopCapture}
+              className="text-sm text-gray-500 border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors"
+            >
+              Stop &amp; save now
+            </button>
+          </div>
         )}
 
         {downloadState.status === "composing" && (
