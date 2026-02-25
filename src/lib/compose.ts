@@ -2,13 +2,11 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { join } from "path";
 import { mkdtemp, rm } from "fs/promises";
-import { createWriteStream } from "fs";
 import { tmpdir } from "os";
-import { pipeline } from "stream/promises";
 // ffmpeg-static ships a pre-compiled static binary inside node_modules —
 // no system ffmpeg needed, works in Vercel Lambda.
 import ffmpegPath from "ffmpeg-static";
-import ytdl from "@distube/ytdl-core";
+import { downloadWithYtDlp } from "./ytdlp";
 import type { ReactionEventLog, WatchLayout, ComposeVolumeSettings } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -37,12 +35,7 @@ export async function downloadYouTube(
   videoUrl: string,
   outputPath: string
 ): Promise<void> {
-  const writeStream = createWriteStream(outputPath);
-  const videoStream = ytdl(videoUrl, {
-    filter: "audioandvideo",
-    quality: "highest",
-  });
-  await pipeline(videoStream as unknown as NodeJS.ReadableStream, writeStream);
+  await downloadWithYtDlp(videoUrl, outputPath);
 }
 
 function buildTimeline(events: ReactionEventLog): TimelineSegment[] {
