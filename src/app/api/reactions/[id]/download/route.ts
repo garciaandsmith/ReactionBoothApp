@@ -1,6 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+// Called by the client-side recording path to track a download without
+// triggering a server-side file redirect.
+export async function POST(
+  _request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const reaction = await prisma.reaction.findUnique({
+      where: { id: params.id },
+      include: { sender: { select: { plan: true } } },
+    });
+
+    if (!reaction) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    const plan = reaction.sender?.plan ?? "free";
+
+    if (plan === "free" && reaction.downloadCount >= 1) {
+      return NextResponse.json(
+        { error: "Download link has already been used. Upgrade to Pro for unlimited downloads." },
+        { status: 403 }
+      );
+    }
+
+    await prisma.reaction.update({
+      where: { id: reaction.id },
+      data: { downloadCount: { increment: 1 } },
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error("Error tracking download:", error);
+    return NextResponse.json({ error: "Failed to track download" }, { status: 500 });
+  }
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: { id: string } }
