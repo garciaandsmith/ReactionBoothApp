@@ -334,9 +334,16 @@ export default function WatchPlayer({
     setRecordingProgress(0);
     setDownloadState({ status: "capturing" });
     webcam.currentTime = 0;
-    // Give the seek a moment to settle; the video is now hidden (h-0)
-    // so the user sees the progress overlay while we work.
-    await new Promise<void>((r) => setTimeout(r, 300));
+    // Wait for the seek to settle before starting the encoder loop.
+    // The video element stays at real CSS dimensions (covered by the opaque
+    // overlay above), so Chrome will decode frames correctly.
+    await new Promise<void>((resolve) => {
+      const onSeeked = () => resolve();
+      webcam.addEventListener("seeked", onSeeked, { once: true });
+      // Fallback: resolve after 1 s in case the seeked event never fires
+      // (e.g. currentTime was already 0).
+      setTimeout(() => { webcam.removeEventListener("seeked", onSeeked); resolve(); }, 1000);
+    });
 
     // ── Path A — WebCodecs → true .mp4 (Chrome / Edge 94+) ──────────────
     const hasWebCodecs =
@@ -549,14 +556,15 @@ export default function WatchPlayer({
       </div>
 
       {/* ── Video preview area ─────────────────────────────────────────────
-          During recording the preview container is collapsed (h-0) so the
-          video element stays in the DOM and keeps playing — enabling
-          ctx.drawImage() to capture frames — but nothing is visible.
-          A progress overlay is rendered in its place.
+          During recording a full-size opaque overlay covers the preview so
+          the user sees only the spinner. The <video> element stays at its
+          real size underneath the overlay, which lets ctx.drawImage() keep
+          capturing frames (unlike h-0 which collapses the element to 0×0
+          and causes play() to fail silently in Chrome).
       ─────────────────────────────────────────────────────────────────── */}
 
-      {/* Hidden-but-mounted preview (h-0 during recording) */}
-      <div className={`bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2 ${isCapturing ? "h-0 border-0" : ""}`}>
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2 relative">
+        {/* Normal preview — always rendered so the video element stays in DOM */}
         {hasEvents ? (
           <div className={isStacked ? "flex justify-center bg-black" : ""}>
             <div className="relative overflow-hidden" style={getPreviewContainerStyle()}>
@@ -580,24 +588,25 @@ export default function WatchPlayer({
             <video ref={webcamRef} src={reaction.recordingUrl} playsInline className="w-full aspect-video bg-black" />
           </div>
         )}
-      </div>
 
-      {/* Progress overlay — shown instead of the preview during recording */}
-      {isCapturing && (
-        <div className={`bg-gray-900 rounded-2xl overflow-hidden mb-2 flex flex-col items-center justify-center ${isStacked ? "aspect-[9/16] max-h-[60vh]" : "aspect-video"}`}>
-          <div className="w-14 h-14 border-[5px] border-brand border-t-transparent rounded-full animate-spin mb-5" />
-          <p className="text-white font-semibold text-xl mb-1">Recording HD video…</p>
-          <p className="text-gray-400 text-sm mb-6">
-            {recordingProgress < 100 ? `${recordingProgress}% complete` : "Finalising…"}
-          </p>
-          <div className="w-64 h-2 bg-gray-700 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-brand rounded-full transition-all duration-500"
-              style={{ width: `${recordingProgress}%` }}
-            />
+        {/* Opaque overlay shown during recording — covers the preview while
+            the video continues to play in the background for canvas capture */}
+        {isCapturing && (
+          <div className={`absolute inset-0 bg-gray-900 flex flex-col items-center justify-center z-20 ${isStacked ? "" : ""}`}>
+            <div className="w-14 h-14 border-[5px] border-brand border-t-transparent rounded-full animate-spin mb-5" />
+            <p className="text-white font-semibold text-xl mb-1">Recording HD video…</p>
+            <p className="text-gray-400 text-sm mb-6">
+              {recordingProgress < 100 ? `${recordingProgress}% complete` : "Finalising…"}
+            </p>
+            <div className="w-64 h-2 bg-gray-700 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-brand rounded-full transition-all duration-500"
+                style={{ width: `${recordingProgress}%` }}
+              />
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* ── Player bar (hidden during recording) ────────────────────────── */}
       {!isCapturing && (
