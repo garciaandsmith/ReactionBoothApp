@@ -10,13 +10,32 @@ const BINARY_PATH = join(tmpdir(), "yt-dlp");
 // Module-level singleton so concurrent requests share one download promise.
 let _binaryReady: Promise<string> | null = null;
 
+// Map Node arch strings to the yt-dlp standalone binary filenames.
+// The standalone binaries bundle Python via PyInstaller and need no system Python.
+// The default `downloadFromGithub` on Linux fetches the Python zipapp which
+// requires `python3` in PATH — use the explicit standalone URL instead.
+const STANDALONE_URLS: Partial<Record<NodeJS.Architecture, string>> = {
+  x64: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux",
+  arm64:
+    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux_aarch64",
+};
+
 async function ensureBinary(): Promise<string> {
   try {
     await access(BINARY_PATH);
     return BINARY_PATH;
   } catch {
-    // Not cached yet — download from GitHub releases.
-    await YTDlpWrap.downloadFromGithub(BINARY_PATH);
+    // Not cached yet — download the appropriate binary.
+    const standaloneUrl =
+      process.platform === "linux" ? STANDALONE_URLS[process.arch] : undefined;
+
+    if (standaloneUrl) {
+      await YTDlpWrap.downloadFile(standaloneUrl, BINARY_PATH);
+    } else {
+      // macOS, Windows, or unknown Linux arch — let the library decide.
+      await YTDlpWrap.downloadFromGithub(BINARY_PATH);
+    }
+
     await chmod(BINARY_PATH, 0o755);
     return BINARY_PATH;
   }
