@@ -218,6 +218,7 @@ export default function WatchPlayer({
   const capturePreview = useCallback(async () => {
     const webcam = webcamRef.current;
     if (!webcam || downloadUsed) return;
+    try {
 
     const isStackedLayout = selectedLayout === "stacked";
     // Stacked is portrait (9:16), all other layouts are landscape (16:9).
@@ -320,6 +321,8 @@ export default function WatchPlayer({
       captureStreamRef.current        = null;
       stopRecordingRef.current        = null;
       if (senderPlan === "free") setDownloadUsed(true);
+      // Track the download server-side so the burn-after-use limit persists across page reloads.
+      fetch(`/api/reactions/${reaction.id}/download`, { method: "POST" }).catch(() => {});
       const url = URL.createObjectURL(blob);
       const a   = document.createElement("a");
       a.href     = url;
@@ -416,12 +419,21 @@ export default function WatchPlayer({
 
       const encodeFrame = () => {
         if (!active) return;
-        drawToCanvas();
-        const timestamp = Math.round(frameCount * (1_000_000 / 30)); // µs at 30 fps
-        const frame = new VideoFrame(canvas, { timestamp });
-        videoEncoder.encode(frame, { keyFrame: frameCount % 90 === 0 });
-        frame.close();
-        frameCount++;
+        try {
+          drawToCanvas();
+          const timestamp = Math.round(frameCount * (1_000_000 / 30)); // µs at 30 fps
+          const frame = new VideoFrame(canvas, { timestamp });
+          videoEncoder.encode(frame, { keyFrame: frameCount % 90 === 0 });
+          frame.close();
+          frameCount++;
+        } catch (e) {
+          console.error("Frame encode error:", e);
+          active = false;
+          if (canvas.parentNode) document.body.removeChild(canvas);
+          stopRecordingRef.current = null;
+          setDownloadState({ status: "error", message: e instanceof Error ? e.message : "Frame encoding failed" });
+          return;
+        }
         drawLoopRef.current = requestAnimationFrame(encodeFrame);
       };
 
@@ -479,6 +491,10 @@ export default function WatchPlayer({
       webcam.addEventListener("ended", () => {
         if (recorder.state !== "inactive") recorder.stop();
       }, { once: true });
+    }
+    } catch (e) {
+      console.error("capturePreview error:", e);
+      setDownloadState({ status: "error", message: "Recording failed. Please try again." });
     }
   }, [
     downloadUsed,
@@ -578,14 +594,14 @@ export default function WatchPlayer({
                 />
               </div>
               <div style={getWebcamContainerStyle()}>
-                <video ref={webcamRef} src={reaction.recordingUrl} playsInline className="w-full h-full object-cover" />
+                <video ref={webcamRef} src={reaction.recordingUrl} playsInline crossOrigin="anonymous" className="w-full h-full object-cover" />
               </div>
               {reaction.watermarked && <span style={getWatermarkStyle()}>ReactionBooth</span>}
             </div>
           </div>
         ) : (
           <div className="relative">
-            <video ref={webcamRef} src={reaction.recordingUrl} playsInline className="w-full aspect-video bg-black" />
+            <video ref={webcamRef} src={reaction.recordingUrl} playsInline crossOrigin="anonymous" className="w-full aspect-video bg-black" />
           </div>
         )}
 
