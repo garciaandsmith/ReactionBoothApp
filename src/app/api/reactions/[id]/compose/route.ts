@@ -88,6 +88,14 @@ export async function POST(
 
     const plan = reaction.sender?.plan ?? "free";
 
+    // Load YouTube cookies from the admin DB setting; fall back to env var.
+    // The cookies are forwarded to yt-dlp to authenticate requests that
+    // YouTube bot-guards when originating from datacenter IPs.
+    const cookiesSetting = await prisma.siteSettings.findUnique({
+      where: { key: "youtube_cookies" },
+    });
+    const cookiesContent = cookiesSetting?.value ?? process.env.YOUTUBE_COOKIES;
+
     await composeReaction({
       webcamPath,
       eventsLog,
@@ -95,6 +103,7 @@ export async function POST(
       outputPath,
       watermark: plan === "free",
       volume,
+      cookiesContent,
     });
 
     // Upload the composed MP4 to Vercel Blob

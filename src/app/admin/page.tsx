@@ -9,8 +9,21 @@ interface Stats {
   active: number;
 }
 
+/** Returns how stale the YouTube cookies are, for the dashboard banner. */
+function cookieStaleness(
+  cookiesSet: boolean,
+  updatedAt: string | null
+): "missing" | "stale" | "ok" {
+  if (!cookiesSet) return "missing";
+  if (!updatedAt) return "stale";
+  const days = (Date.now() - new Date(updatedAt).getTime()) / 86_400_000;
+  return days >= 14 ? "stale" : "ok";
+}
+
 export default function AdminPage() {
   const [stats, setStats] = useState<Stats | null>(null);
+  const [cookiesStatus, setCookiesStatus] = useState<"missing" | "stale" | "ok" | null>(null);
+  const [cookiesDays, setCookiesDays] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/admin/users")
@@ -18,10 +31,22 @@ export default function AdminPage() {
       .then((users: { status: string }[]) => {
         if (!Array.isArray(users)) return;
         setStats({
-          total: users.length,
+          total:   users.length,
           pending: users.filter((u) => u.status === "pending").length,
-          active: users.filter((u) => u.status === "active").length,
+          active:  users.filter((u) => u.status === "active").length,
         });
+      })
+      .catch(() => {});
+
+    fetch("/api/admin/settings")
+      .then((r) => r.json())
+      .then((s: Record<string, string>) => {
+        const cookiesSet = !!s["youtube_cookies"];
+        const updatedAt  = s["youtube_cookies_updated_at"] ?? null;
+        setCookiesStatus(cookieStaleness(cookiesSet, updatedAt));
+        if (updatedAt) {
+          setCookiesDays(Math.floor((Date.now() - new Date(updatedAt).getTime()) / 86_400_000));
+        }
       })
       .catch(() => {});
   }, []);
@@ -38,7 +63,7 @@ export default function AdminPage() {
     {
       href: "/admin/settings",
       label: "Site Settings",
-      desc: "Maintenance mode and other site-wide controls",
+      desc: "Maintenance mode, YouTube cookies, and other site-wide controls",
       icon: (
         <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" /></>
       ),
@@ -56,7 +81,8 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
+      <div className="max-w-5xl mx-auto px-4 py-8 space-y-4">
+
         {/* Pending approval alert */}
         {stats && stats.pending > 0 && (
           <Link href="/admin/users" className="block">
@@ -81,9 +107,44 @@ export default function AdminPage() {
           </Link>
         )}
 
+        {/* YouTube cookies staleness alert */}
+        {(cookiesStatus === "missing" || cookiesStatus === "stale") && (
+          <Link href="/admin/settings" className="block">
+            <div className={`rounded-2xl p-5 flex items-center justify-between transition-colors ${
+              cookiesStatus === "missing"
+                ? "bg-red-50 border border-red-300 hover:border-red-400"
+                : "bg-amber-50 border border-amber-300 hover:border-amber-400"
+            }`}>
+              <div className="flex items-center gap-3">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+                  stroke={cookiesStatus === "missing" ? "#dc2626" : "#d97706"}
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0110 0v4" />
+                </svg>
+                <div>
+                  <p className={`text-sm font-semibold ${cookiesStatus === "missing" ? "text-red-800" : "text-amber-800"}`}>
+                    {cookiesStatus === "missing"
+                      ? "YouTube cookies not set — video downloads may fail"
+                      : `YouTube cookies are ${cookiesDays}d old — refresh recommended`}
+                  </p>
+                  <p className={`text-xs ${cookiesStatus === "missing" ? "text-red-600" : "text-amber-700"}`}>
+                    Click to update in Site Settings
+                  </p>
+                </div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke={cookiesStatus === "missing" ? "#dc2626" : "#d97706"}
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </div>
+          </Link>
+        )}
+
         {/* Stats */}
         {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-4">
             <div className="bg-white rounded-2xl border border-gray-200 p-6">
               <p className="text-3xl font-bold text-gray-900">{stats.total}</p>
               <p className="text-sm text-gray-500 mt-1">Total Signups</p>
@@ -100,7 +161,7 @@ export default function AdminPage() {
         )}
 
         {/* Navigation cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
           {navItems.map((item) => (
             <Link
               key={item.href}

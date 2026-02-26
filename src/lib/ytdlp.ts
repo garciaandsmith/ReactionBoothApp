@@ -4,25 +4,19 @@ import { access, chmod, writeFile } from "fs/promises";
 import YTDlpWrap from "yt-dlp-wrap";
 
 // Binary is cached in /tmp between warm Lambda invocations.
-// On cold starts it is downloaded once from the yt-dlp GitHub release (~12 MB).
 const BINARY_PATH = join(tmpdir(), "yt-dlp");
 
-// If YOUTUBE_COOKIES is set, its Netscape-format content is written here once
-// and reused across requests.
+// Cookies are written here whenever the content changes.
 const COOKIES_PATH = join(tmpdir(), "yt-dlp-cookies.txt");
 
-// Module-level singleton so concurrent requests share one download promise.
+// Module-level singletons.
 let _binaryReady: Promise<string> | null = null;
-let _cookiesWritten = false;
+// Track the last cookies content written so we only rewrite on change.
+let _cookiesContent: string | null = null;
 
-// Map Node arch strings to the yt-dlp standalone binary filenames.
-// The standalone binaries bundle Python via PyInstaller and need no system Python.
-// The default `downloadFromGithub` on Linux fetches the Python zipapp which
-// requires `python3` in PATH — use the explicit standalone URL instead.
 const STANDALONE_URLS: Partial<Record<NodeJS.Architecture, string>> = {
-  x64: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux",
-  arm64:
-    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux_aarch64",
+  x64:   "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux",
+  arm64: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux_aarch64",
 };
 
 async function ensureBinary(): Promise<string> {
@@ -30,17 +24,13 @@ async function ensureBinary(): Promise<string> {
     await access(BINARY_PATH);
     return BINARY_PATH;
   } catch {
-    // Not cached yet — download the appropriate binary.
     const standaloneUrl =
       process.platform === "linux" ? STANDALONE_URLS[process.arch] : undefined;
-
     if (standaloneUrl) {
       await YTDlpWrap.downloadFile(standaloneUrl, BINARY_PATH);
     } else {
-      // macOS, Windows, or unknown Linux arch — let the library decide.
       await YTDlpWrap.downloadFromGithub(BINARY_PATH);
     }
-
     await chmod(BINARY_PATH, 0o755);
     return BINARY_PATH;
   }
@@ -49,7 +39,7 @@ async function ensureBinary(): Promise<string> {
 function getBinary(): Promise<string> {
   if (!_binaryReady) {
     _binaryReady = ensureBinary().catch((err) => {
-      _binaryReady = null; // allow retry on next call
+      _binaryReady = null;
       throw err;
     });
   }
@@ -57,64 +47,95 @@ function getBinary(): Promise<string> {
 }
 
 /**
- * Write the YOUTUBE_COOKIES env variable to a Netscape-format cookies file in
- * /tmp so yt-dlp can authenticate with YouTube. The file is written once per
- * process lifetime and reused for subsequent requests.
- *
- * Returns the cookies file path, or null if the env variable is not set.
+ * Write cookies to /tmp if the content has changed since the last write.
+ * Accepts an explicit cookies string (from the DB) or falls back to the
+ * YOUTUBE_COOKIES env variable.  Returns the file path, or null if no
+ * cookies are available.
  */
-async function getCookiesPath(): Promise<string | null> {
-  const cookies = process.env.YOUTUBE_COOKIES;
+async function getCookiesPath(overrideCookies?: string): Promise<string | null> {
+  const cookies = overrideCookies ?? process.env.YOUTUBE_COOKIES;
   if (!cookies) return null;
-
-  if (!_cookiesWritten) {
+  if (cookies !== _cookiesContent) {
     await writeFile(COOKIES_PATH, cookies, "utf8");
-    _cookiesWritten = true;
+    _cookiesContent = cookies;
   }
-
   return COOKIES_PATH;
 }
 
 /**
+ * Returns true for errors that indicate the video itself is permanently
+ * unavailable — no point retrying with a different player client.
+ */
+function isPermanentError(message: string): boolean {
+  return [
+    "Video unavailable",
+    "Private video",
+    "This video is not available",
+    "removed by the uploader",
+    "This video has been removed",
+    "members-only",
+    "sign in to confirm your age",
+  ].some((s) => message.toLowerCase().includes(s.toLowerCase()));
+}
+
+// Player clients tried in order.  tv_embedded is least bot-guarded; android
+// and web are fallbacks for videos that reject the embedded client.
+const PLAYER_CLIENTS = ["tv_embedded,web", "android", "web"] as const;
+const RETRY_DELAY_MS = 2_000;
+
+/**
  * Download a YouTube video to `outputPath` using yt-dlp.
  *
- * Uses the tv_embedded player client, which is less restricted than the
- * standard web client and does not require a PO token for most videos.
+ * Retries up to three times, rotating through player clients on each attempt.
+ * Permanent errors (private / removed videos) are surfaced immediately.
  *
- * If the YOUTUBE_COOKIES environment variable is set (Netscape cookie file
- * format, exported from a logged-in browser session), it is passed via
- * --cookies to authenticate requests that YouTube bot-guards.
+ * @param cookiesContent  Netscape-format cookie file content, sourced from
+ *   the admin DB setting.  Falls back to YOUTUBE_COOKIES env var if omitted.
  */
 export async function downloadWithYtDlp(
   videoUrl: string,
-  outputPath: string
+  outputPath: string,
+  cookiesContent?: string
 ): Promise<void> {
   const [binaryPath, cookiesPath] = await Promise.all([
     getBinary(),
-    getCookiesPath(),
+    getCookiesPath(cookiesContent),
   ]);
 
   const ytDlp = new YTDlpWrap(binaryPath);
+  const proxy = process.env.YTDLP_PROXY;
 
-  const args: string[] = [
-    videoUrl,
-    // tv_embedded client: embedded-player API, less bot-guarded than web
-    "--extractor-args",
-    "youtube:player_client=tv_embedded,web",
-    // Prefer an mp4 that already merges video+audio; fall back to best available
-    "-f",
-    "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-    "--merge-output-format",
-    "mp4",
-    "--no-playlist",
-    "--no-warnings",
-    "-o",
-    outputPath,
-  ];
+  let lastError: Error | null = null;
 
-  if (cookiesPath) {
-    args.push("--cookies", cookiesPath);
+  for (let i = 0; i < PLAYER_CLIENTS.length; i++) {
+    const client = PLAYER_CLIENTS[i];
+    const args: string[] = [
+      videoUrl,
+      "--extractor-args", `youtube:player_client=${client}`,
+      "-f", "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+      "--merge-output-format", "mp4",
+      "--no-playlist",
+      "--no-warnings",
+      "-o", outputPath,
+    ];
+    if (cookiesPath) args.push("--cookies", cookiesPath);
+    if (proxy)       args.push("--proxy", proxy);
+
+    try {
+      await ytDlp.execPromise(args);
+      return; // success — stop retrying
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (isPermanentError(msg)) {
+        throw new Error(`YouTube video unavailable: ${msg}`);
+      }
+      lastError = err instanceof Error ? err : new Error(msg);
+      console.warn(`[yt-dlp] attempt ${i + 1} failed (client=${client}): ${msg}`);
+      if (i < PLAYER_CLIENTS.length - 1) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      }
+    }
   }
 
-  await ytDlp.execPromise(args);
+  throw lastError ?? new Error("yt-dlp: all player clients failed");
 }
