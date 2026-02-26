@@ -618,7 +618,7 @@ export default function WatchPlayer({
     // 3. Reset playhead and wait for the seek to settle.
     webcam.currentTime = 0;
     await new Promise<void>((resolve) => {
-      webcam.addEventListener("seeked", resolve, { once: true });
+      webcam.addEventListener("seeked", () => resolve(), { once: true });
       setTimeout(resolve, 1_000);
     });
 
