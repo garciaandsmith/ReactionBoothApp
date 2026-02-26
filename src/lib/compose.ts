@@ -18,6 +18,8 @@ interface ComposeOptions {
   outputPath: string;
   watermark?: boolean;
   volume?: ComposeVolumeSettings;
+  /** Netscape-format cookie content from the admin DB setting. */
+  cookiesContent?: string;
 }
 
 interface TimelineSegment {
@@ -33,9 +35,10 @@ const BRAND_TEXT = "ReactionBooth";
 
 export async function downloadYouTube(
   videoUrl: string,
-  outputPath: string
+  outputPath: string,
+  cookiesContent?: string
 ): Promise<void> {
-  await downloadWithYtDlp(videoUrl, outputPath);
+  await downloadWithYtDlp(videoUrl, outputPath, cookiesContent);
 }
 
 function buildTimeline(events: ReactionEventLog): TimelineSegment[] {
@@ -207,6 +210,7 @@ export async function composeReaction(options: ComposeOptions): Promise<void> {
     outputPath,
     watermark = false,
     volume = { youtubeVolume: 100, webcamVolume: 100 },
+    cookiesContent,
   } = options;
 
   if (!ffmpegPath) throw new Error("ffmpeg-static binary not found");
@@ -218,7 +222,7 @@ export async function composeReaction(options: ComposeOptions): Promise<void> {
   const ytPath = join(tempDir, "youtube.mp4");
 
   try {
-    await downloadYouTube(eventsLog.videoUrl, ytPath);
+    await downloadYouTube(eventsLog.videoUrl, ytPath, cookiesContent);
     const filterGraph = buildFilterGraph(segments, layout, totalDurationS, watermark, volume);
 
     await execFileAsync(ffmpegPath, [

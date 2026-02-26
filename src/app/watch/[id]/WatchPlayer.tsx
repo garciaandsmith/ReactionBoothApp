@@ -31,7 +31,8 @@ interface WatchPlayerProps {
 
 type DownloadState =
   | { status: "idle" }
-  | { status: "capturing" }
+  | { status: "compositing" }   // server-side FFmpeg compose in progress
+  | { status: "capturing" }     // offscreen-canvas fallback (webcam-only)
   | { status: "error"; message: string };
 
 function formatTime(s: number) {
@@ -61,13 +62,7 @@ export default function WatchPlayer({
   );
   const [downloadState, setDownloadState] = useState<DownloadState>({ status: "idle" });
   const [recordingProgress, setRecordingProgress] = useState(0);
-  // True while the tab-capture cinema overlay is visible.
-  const [cinemaMode, setCinemaMode] = useState(false);
-  // CSS scale applied to the preview wrapper in cinema mode so the content
-  // fills as much of the viewport as possible without resizing the YouTube
-  // iframe element (which would trigger IFrame API re-init).
-  const [cinemaScale, setCinemaScale] = useState(1);
-  const previewWrapperRef = useRef<HTMLDivElement>(null);
+
 
   // Custom player state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -81,21 +76,6 @@ export default function WatchPlayer({
   );
   const [ytVolume, setYtVolume] = useState(100);
   const [wcVolume, setWcVolume] = useState(100);
-
-  // Compute scale so the preview fills the viewport in cinema mode.
-  // Using transform: scale() keeps the YouTube iframe's offsetWidth/Height
-  // unchanged, preventing the IFrame API from re-initialising.
-  useEffect(() => {
-    if (!cinemaMode) { setCinemaScale(1); return; }
-    const el = previewWrapperRef.current;
-    if (!el) return;
-    const { width, height } = el.getBoundingClientRect();
-    const scale = Math.min(
-      (window.innerWidth  * 0.98) / width,
-      (window.innerHeight * 0.98) / height,
-    );
-    setCinemaScale(Math.max(1, scale));
-  }, [cinemaMode]);
 
   // Live volume control
   useEffect(() => {
@@ -572,170 +552,56 @@ export default function WatchPlayer({
     }
   }, []);
 
-  // ── Tab-capture recording (primary path for composited layouts) ────────
+  // ── Server-side FFmpeg composition ─────────────────────────────────────
   //
-  // Instead of reconstructing the composited video from parts (which requires
-  // downloading the YouTube video — blocked by YouTube on cloud IPs), we
-  // record the live synchronized preview that is already playing in the
-  // browser tab.  getDisplayMedia captures the tab's rendered output,
-  // including the YouTube iframe, giving us real YouTube frames + audio and
-  // real webcam frames + audio — all mixed exactly as the user configured.
-  //
-  // To keep the captured video clean (no UI buttons, sliders, etc.) we enter
-  // "cinema mode" first: a full-viewport overlay that shows only the video
-  // preview.  The share dialog appears on top of this overlay; after the user
-  // clicks Share, MediaRecorder records the cinema overlay while the preview
-  // plays from the start.
-  //
-  // Fallback: if getDisplayMedia is not available (mobile, some browsers)
-  // we fall back to the offscreen-canvas path (capturePreview).
+  // Posts layout + volume settings to /api/reactions/[id]/compose, which
+  // downloads the YouTube video via yt-dlp and composites it with the webcam
+  // recording using FFmpeg.  The composed MP4 URL is returned and downloaded
+  // directly — no screen capture, no browser recording, no cinema mode.
   // ─────────────────────────────────────────────────────────────────────
-  const captureWithTabRecord = useCallback(async () => {
-    const webcam = webcamRef.current;
-    if (!webcam || downloadUsed) return;
+  const [compositingElapsed, setCompositingElapsed] = useState(0);
 
-    // Fall back to canvas renderer on browsers without getDisplayMedia.
-    if (!navigator.mediaDevices?.getDisplayMedia) {
-      await capturePreview();
-      return;
-    }
+  useEffect(() => {
+    if (downloadState.status !== "compositing") { setCompositingElapsed(0); return; }
+    const id = setInterval(() => setCompositingElapsed((s: number) => s + 1), 1_000);
+    return () => clearInterval(id);
+  }, [downloadState.status]);
 
-    // 1. Enter cinema mode: lift the preview above a black backdrop so the
-    //    tab capture shows only the composited video — no UI chrome.
-    //    Scroll to top so the preview is fully in the viewport.
-    window.scrollTo({ top: 0, behavior: "instant" });
-    setCinemaMode(true);
-    // Give React one frame to paint the backdrop before the share dialog.
-    await new Promise<void>((r) => setTimeout(r, 80));
-
-    // 2. Ask for tab-capture permission.
-    let stream: MediaStream;
+  const downloadComposed = useCallback(async () => {
+    if (downloadUsed) return;
+    setDownloadState({ status: "compositing" });
     try {
-      stream = await (
-        navigator.mediaDevices.getDisplayMedia as (
-          o: Record<string, unknown>
-        ) => Promise<MediaStream>
-      )({
-        video: {
-          displaySurface: "browser",
-          frameRate: { ideal: 30 },
-          width:  { ideal: window.screen.width  * window.devicePixelRatio },
-          height: { ideal: window.screen.height * window.devicePixelRatio },
-          cursor: "never",
-        },
-        audio: {
-          suppressLocalAudioPlayback: false,
-          echoCancellation: false,
-          noiseSuppression: false,
-        },
-        // Chrome 107+: skips the picker and auto-selects the current tab.
-        preferCurrentTab: true,
-        selfBrowserSurface: "include",
+      const res = await fetch(`/api/reactions/${reaction.id}/compose`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          layout: selectedLayout,
+          youtubeVolume: ytVolume,
+          webcamVolume:  wcVolume,
+        }),
       });
-    } catch {
-      // User dismissed the dialog — exit cinema mode, stay idle.
-      setCinemaMode(false);
-      return;
-    }
-
-    setRecordingProgress(0);
-    setDownloadState({ status: "capturing" });
-
-    // 3. Reset playhead and wait for the seek to settle.
-    webcam.currentTime = 0;
-    await new Promise<void>((resolve) => {
-      webcam.addEventListener("seeked", () => resolve(), { once: true });
-      setTimeout(resolve, 1_000);
-    });
-
-    // Pre-position YouTube at the first play-event's video time so it is
-    // already buffered when the sync loop enables playback.  Without this,
-    // YouTube stays on its thumbnail poster until the sync loop crosses the
-    // first event's timestamp (which could be seconds into the recording).
-    if (events && events.events.length > 0) {
-      const firstPlay = events.events.find((e) => e.type === "play");
-      if (firstPlay) {
-        youtubeRef.current?.seekTo(firstPlay.videoTimeS);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? `Server error ${res.status}`);
       }
-    }
-
-    // 4. Wire up MediaRecorder.  Prefer MP4/H.264 (Chrome 130+, Safari) so the
-    //    download is immediately playable on all devices; fall back to WebM.
-    const mp4Mime = "video/mp4;codecs=avc1,mp4a.40.2";
-    const mimeType = MediaRecorder.isTypeSupported(mp4Mime)
-      ? mp4Mime
-      : MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
-      ? "video/webm;codecs=vp9,opus"
-      : "video/webm";
-    const ext = mimeType.startsWith("video/mp4") ? "mp4" : "webm";
-    const recorder = new MediaRecorder(stream, {
-      mimeType,
-      videoBitsPerSecond: 6_000_000,
-    });
-    const chunks: BlobPart[] = [];
-
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
-
-    recorder.onstop = () => {
-      stream.getTracks().forEach((t) => t.stop());
-      cancelAnimationFrame(drawLoopRef.current);
-      drawLoopRef.current = 0;
-      setCinemaMode(false);
-      captureMediaRecorderRef.current = null;
-      captureStreamRef.current = null;
-      stopRecordingRef.current = null;
+      const { composedUrl } = await res.json() as { composedUrl: string };
+      // Track the download (enforces per-reaction limit server-side).
+      await fetch(`/api/reactions/${reaction.id}/download`, { method: "POST" }).catch(() => {});
       if (senderPlan === "free") setDownloadUsed(true);
-      fetch(`/api/reactions/${reaction.id}/download`, { method: "POST" }).catch(() => {});
-      const blob = new Blob(chunks, { type: mimeType });
-      const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
-      a.download = `reaction-${reaction.id}.${ext}`;
+      a.href = composedUrl;
+      a.download = `reaction-${reaction.id}.mp4`;
+      document.body.appendChild(a);
       a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 30_000);
-      setRecordingProgress(100);
+      document.body.removeChild(a);
       setDownloadState({ status: "idle" });
-    };
-
-    // Handle the user clicking the browser's "Stop sharing" button.
-    stream.getTracks().forEach((track) => {
-      track.onended = () => {
-        webcam.pause();
-        if (recorder.state !== "inactive") recorder.stop();
-      };
-    });
-
-    captureMediaRecorderRef.current = recorder;
-    captureStreamRef.current = stream;
-    stopRecordingRef.current = () => {
-      if (recorder.state !== "inactive") recorder.stop();
-    };
-
-    // Progress ticker (used by the recording badge progress display).
-    const tick = () => {
-      if (webcam.duration > 0) {
-        setRecordingProgress(Math.round((webcam.currentTime / webcam.duration) * 100));
-      }
-      drawLoopRef.current = requestAnimationFrame(tick);
-    };
-    drawLoopRef.current = requestAnimationFrame(tick);
-
-    // 5. Start recording then play.  The existing sync loop handles YouTube.
-    recorder.start(1_000);
-    try { await webcam.play(); } catch (e) { console.error("play() failed:", e); }
-
-    webcam.addEventListener("ended", () => {
-      if (recorder.state !== "inactive") recorder.stop();
-    }, { once: true });
-  }, [
-    capturePreview,
-    downloadUsed,
-    events,
-    reaction.id,
-    senderPlan,
-  ]);
+    } catch (e) {
+      setDownloadState({
+        status: "error",
+        message: e instanceof Error ? e.message : "Compositing failed. Please try again.",
+      });
+    }
+  }, [downloadUsed, reaction.id, selectedLayout, ytVolume, wcVolume, senderPlan]);
 
   const isPip     = selectedLayout.startsWith("pip-");
   const isStacked = selectedLayout === "stacked";
@@ -794,25 +660,7 @@ export default function WatchPlayer({
           and causes play() to fail silently in Chrome).
       ─────────────────────────────────────────────────────────────────── */}
 
-      {/* Black backdrop — covers page UI chrome when cinema mode is active.
-          z-[59] sits above the normal page but below the preview (z-[60]).  */}
-      {cinemaMode && <div className="fixed inset-0 z-[59] bg-black" />}
-
-      {/* Preview wrapper — lifted above the backdrop in cinema mode so the
-          tab capture shows only the composited video on a clean background.
-          IMPORTANT: we deliberately keep the same size / DOM structure in
-          both modes.  Changing the YouTube iframe's dimensions causes the
-          IFrame API to reinitialise (→ state −1 / unstarted) which silently
-          blocks programmatic playVideo() calls and produces the thumbnail.  */}
-      <div
-        ref={previewWrapperRef}
-        className={
-          cinemaMode
-            ? "bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2 relative z-[60]"
-            : "bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2 relative"
-        }
-        style={cinemaScale > 1 ? { transform: `scale(${cinemaScale})`, transformOrigin: "top center" } : undefined}
-      >
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2 relative">
         {/* Normal preview — always rendered so the video element stays in DOM */}
         {hasEvents ? (
           <div className={isStacked ? "flex justify-center bg-black" : ""}>
@@ -833,12 +681,6 @@ export default function WatchPlayer({
               {/* Recording badge — visible inside the cinema overlay so the
                   user knows capture is active (captured in the output too,
                   but that's standard for screen-recorded reaction videos).  */}
-              {cinemaMode && isCapturing && (
-                <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1 z-30 pointer-events-none">
-                  <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                  <span className="text-white text-xs font-medium tracking-wide">REC</span>
-                </div>
-              )}
             </div>
           </div>
         ) : (
@@ -848,9 +690,8 @@ export default function WatchPlayer({
         )}
 
         {/* Opaque overlay shown during canvas recording — covers the preview
-            while the video plays off-screen for ctx.drawImage() capture.
-            Hidden during cinema/tab-capture mode (we want the preview visible). */}
-        {isCapturing && !cinemaMode && (
+            while the video plays off-screen for ctx.drawImage() capture. */}
+        {isCapturing && (
           <div className={`absolute inset-0 bg-gray-900 flex flex-col items-center justify-center z-20 ${isStacked ? "" : ""}`}>
             <div className="w-14 h-14 border-[5px] border-brand border-t-transparent rounded-full animate-spin mb-5" />
             <p className="text-white font-semibold text-xl mb-1">Recording HD video…</p>
@@ -915,15 +756,15 @@ export default function WatchPlayer({
         </div>
       )}
 
-      {/* Hint text (hidden during recording) */}
-      {hasEvents && !isCapturing && (
+      {/* Hint text (hidden during recording or compositing) */}
+      {hasEvents && downloadState.status === "idle" && (
         <p className="text-center text-xs text-gray-400 mb-6">
-          Press play above to start synchronized playback. Adjust layout and volume — the preview updates live.
+          Press play above to preview. Adjust layout and volume before downloading.
         </p>
       )}
 
-      {/* Layout chooser (hidden during recording) */}
-      {hasEvents && !isCapturing && (
+      {/* Layout chooser (hidden during recording or compositing) */}
+      {hasEvents && downloadState.status === "idle" && (
         <div className="bg-gray-50 rounded-2xl border border-gray-200 p-6 mb-8">
           <h3 className="text-sm font-semibold text-gray-700 mb-3">Layout</h3>
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
@@ -951,7 +792,7 @@ export default function WatchPlayer({
         {downloadState.status === "idle" && (
           <div className="flex flex-col items-center gap-2">
             <button
-              onClick={hasEvents ? captureWithTabRecord : capturePreview}
+              onClick={hasEvents ? downloadComposed : capturePreview}
               disabled={downloadUsed}
               className={`px-6 py-3 rounded-xl font-medium transition-colors ${
                 downloadUsed
@@ -962,12 +803,12 @@ export default function WatchPlayer({
               {downloadUsed
                 ? "Download Used"
                 : hasEvents
-                ? `Record as ${LAYOUTS[selectedLayout]}`
+                ? `Download as ${LAYOUTS[selectedLayout]}`
                 : "Save Reaction Video"}
             </button>
             {!downloadUsed && hasEvents && (
               <p className="text-xs text-gray-400 text-center max-w-xs">
-                Plays back the synchronized preview and captures it — real YouTube video &amp; audio included. Don&apos;t switch tabs during recording.
+                Our servers composite the YouTube video with your reaction at full quality — no browser recording needed.
               </p>
             )}
             {!downloadUsed && !hasEvents && (
@@ -978,10 +819,22 @@ export default function WatchPlayer({
           </div>
         )}
 
-        {/* During cinema/tab-capture mode the controls below are hidden behind
-            the z-[60] overlay; the browser's own "Stop sharing" button handles
-            stopping.  Show them only for the canvas-recording fallback path. */}
-        {isCapturing && !cinemaMode && (
+        {downloadState.status === "compositing" && (
+          <div className="flex flex-col items-center gap-3 py-4">
+            <div className="w-10 h-10 border-[3px] border-brand border-t-transparent rounded-full animate-spin" />
+            <p className="text-gray-700 font-medium">Compositing your video…</p>
+            <p className="text-gray-400 text-sm text-center max-w-xs">
+              {compositingElapsed < 5
+                ? "Starting up…"
+                : compositingElapsed < 60
+                ? `${compositingElapsed}s — downloading YouTube video…`
+                : `${Math.floor(compositingElapsed / 60)}m ${compositingElapsed % 60}s — compositing with FFmpeg…`}
+            </p>
+            <p className="text-xs text-gray-400">Don&apos;t close this tab.</p>
+          </div>
+        )}
+
+        {isCapturing && (
           <div className="flex flex-col items-center gap-2">
             <button
               onClick={stopCapture}
