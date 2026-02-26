@@ -580,10 +580,12 @@ export default function WatchPlayer({
       return;
     }
 
-    // 1. Enter cinema mode so the tab shows only the clean preview.
+    // 1. Enter cinema mode: lift the preview above a black backdrop so the
+    //    tab capture shows only the composited video — no UI chrome.
+    //    Scroll to top so the preview is fully in the viewport.
+    window.scrollTo({ top: 0, behavior: "instant" });
     setCinemaMode(true);
-    // Give React one frame to paint the cinema overlay before the browser
-    // shows the share-tab dialog on top of it.
+    // Give React one frame to paint the backdrop before the share dialog.
     await new Promise<void>((r) => setTimeout(r, 80));
 
     // 2. Ask for tab-capture permission.
@@ -619,6 +621,17 @@ export default function WatchPlayer({
       webcam.addEventListener("seeked", resolve, { once: true });
       setTimeout(resolve, 1_000);
     });
+
+    // Pre-position YouTube at the first play-event's video time so it is
+    // already buffered when the sync loop enables playback.  Without this,
+    // YouTube stays on its thumbnail poster until the sync loop crosses the
+    // first event's timestamp (which could be seconds into the recording).
+    if (events && events.events.length > 0) {
+      const firstPlay = events.events.find((e) => e.type === "play");
+      if (firstPlay) {
+        youtubeRef.current?.seekTo(firstPlay.videoTimeS);
+      }
+    }
 
     // 4. Wire up MediaRecorder.
     const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
@@ -688,6 +701,7 @@ export default function WatchPlayer({
   }, [
     capturePreview,
     downloadUsed,
+    events,
     reaction.id,
     senderPlan,
   ]);
@@ -696,28 +710,6 @@ export default function WatchPlayer({
   const isStacked = selectedLayout === "stacked";
 
   const getPreviewContainerStyle = (): React.CSSProperties => {
-    if (cinemaMode) {
-      // Fill as much of the full-viewport flex container as possible while
-      // preserving aspect ratio.  max-height/width guard against overflow.
-      if (isStacked) {
-        return {
-          position: "relative",
-          backgroundColor: "#2EE6A6",
-          aspectRatio: "9/16",
-          height: "100vh",
-          maxHeight: "100vh",
-          width: "auto",
-        };
-      }
-      return {
-        position: "relative",
-        backgroundColor: "#2EE6A6",
-        aspectRatio: "16/9",
-        width: "100vw",
-        maxWidth: "177.78vh", // 16/9 of viewport height — caps width on tall screens
-        height: "auto",
-      };
-    }
     if (isStacked) return { backgroundColor: "#2EE6A6", aspectRatio: "9/16", height: "calc(100vh - 14rem)" };
     return { backgroundColor: "#2EE6A6", aspectRatio: "16/9" };
   };
@@ -771,15 +763,24 @@ export default function WatchPlayer({
           and causes play() to fail silently in Chrome).
       ─────────────────────────────────────────────────────────────────── */}
 
-      {/* In cinema mode this becomes a full-viewport overlay so the tab
-          capture records only the composited preview — no UI chrome.      */}
-      <div className={cinemaMode
-        ? "fixed inset-0 z-[60] bg-black flex items-center justify-center"
-        : "bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2 relative"
+      {/* Black backdrop — covers page UI chrome when cinema mode is active.
+          z-[59] sits above the normal page but below the preview (z-[60]).  */}
+      {cinemaMode && <div className="fixed inset-0 z-[59] bg-black" />}
+
+      {/* Preview wrapper — lifted above the backdrop in cinema mode so the
+          tab capture shows only the composited video on a clean background.
+          IMPORTANT: we deliberately keep the same size / DOM structure in
+          both modes.  Changing the YouTube iframe's dimensions causes the
+          IFrame API to reinitialise (→ state −1 / unstarted) which silently
+          blocks programmatic playVideo() calls and produces the thumbnail.  */}
+      <div className={
+        cinemaMode
+          ? "bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2 relative z-[60]"
+          : "bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2 relative"
       }>
         {/* Normal preview — always rendered so the video element stays in DOM */}
         {hasEvents ? (
-          <div className={cinemaMode ? "w-full h-full flex items-center justify-center" : isStacked ? "flex justify-center bg-black" : ""}>
+          <div className={isStacked ? "flex justify-center bg-black" : ""}>
             <div className="relative overflow-hidden" style={getPreviewContainerStyle()}>
               <div style={getYouTubeContainerStyle()}>
                 <YouTubePlayer
