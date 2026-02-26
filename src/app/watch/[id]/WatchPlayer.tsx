@@ -63,6 +63,11 @@ export default function WatchPlayer({
   const [recordingProgress, setRecordingProgress] = useState(0);
   // True while the tab-capture cinema overlay is visible.
   const [cinemaMode, setCinemaMode] = useState(false);
+  // CSS scale applied to the preview wrapper in cinema mode so the content
+  // fills as much of the viewport as possible without resizing the YouTube
+  // iframe element (which would trigger IFrame API re-init).
+  const [cinemaScale, setCinemaScale] = useState(1);
+  const previewWrapperRef = useRef<HTMLDivElement>(null);
 
   // Custom player state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -76,6 +81,21 @@ export default function WatchPlayer({
   );
   const [ytVolume, setYtVolume] = useState(100);
   const [wcVolume, setWcVolume] = useState(100);
+
+  // Compute scale so the preview fills the viewport in cinema mode.
+  // Using transform: scale() keeps the YouTube iframe's offsetWidth/Height
+  // unchanged, preventing the IFrame API from re-initialising.
+  useEffect(() => {
+    if (!cinemaMode) { setCinemaScale(1); return; }
+    const el = previewWrapperRef.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    const scale = Math.min(
+      (window.innerWidth  * 0.98) / width,
+      (window.innerHeight * 0.98) / height,
+    );
+    setCinemaScale(Math.max(1, scale));
+  }, [cinemaMode]);
 
   // Live volume control
   useEffect(() => {
@@ -596,7 +616,13 @@ export default function WatchPlayer({
           o: Record<string, unknown>
         ) => Promise<MediaStream>
       )({
-        video: { displaySurface: "browser", frameRate: { ideal: 30 } },
+        video: {
+          displaySurface: "browser",
+          frameRate: { ideal: 30 },
+          width:  { ideal: window.screen.width  * window.devicePixelRatio },
+          height: { ideal: window.screen.height * window.devicePixelRatio },
+          cursor: "never",
+        },
         audio: {
           suppressLocalAudioPlayback: false,
           echoCancellation: false,
@@ -633,10 +659,15 @@ export default function WatchPlayer({
       }
     }
 
-    // 4. Wire up MediaRecorder.
-    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
+    // 4. Wire up MediaRecorder.  Prefer MP4/H.264 (Chrome 130+, Safari) so the
+    //    download is immediately playable on all devices; fall back to WebM.
+    const mp4Mime = "video/mp4;codecs=avc1,mp4a.40.2";
+    const mimeType = MediaRecorder.isTypeSupported(mp4Mime)
+      ? mp4Mime
+      : MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
       ? "video/webm;codecs=vp9,opus"
       : "video/webm";
+    const ext = mimeType.startsWith("video/mp4") ? "mp4" : "webm";
     const recorder = new MediaRecorder(stream, {
       mimeType,
       videoBitsPerSecond: 6_000_000,
@@ -661,7 +692,7 @@ export default function WatchPlayer({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `reaction-${reaction.id}.webm`;
+      a.download = `reaction-${reaction.id}.${ext}`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 30_000);
       setRecordingProgress(100);
@@ -773,11 +804,15 @@ export default function WatchPlayer({
           both modes.  Changing the YouTube iframe's dimensions causes the
           IFrame API to reinitialise (→ state −1 / unstarted) which silently
           blocks programmatic playVideo() calls and produces the thumbnail.  */}
-      <div className={
-        cinemaMode
-          ? "bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2 relative z-[60]"
-          : "bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2 relative"
-      }>
+      <div
+        ref={previewWrapperRef}
+        className={
+          cinemaMode
+            ? "bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2 relative z-[60]"
+            : "bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2 relative"
+        }
+        style={cinemaScale > 1 ? { transform: `scale(${cinemaScale})`, transformOrigin: "top center" } : undefined}
+      >
         {/* Normal preview — always rendered so the video element stays in DOM */}
         {hasEvents ? (
           <div className={isStacked ? "flex justify-center bg-black" : ""}>
@@ -801,9 +836,7 @@ export default function WatchPlayer({
               {cinemaMode && isCapturing && (
                 <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1 z-30 pointer-events-none">
                   <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                  <span className="text-white text-xs font-medium tracking-wide">
-                    {recordingProgress > 0 && recordingProgress < 100 ? `${recordingProgress}%` : "REC"}
-                  </span>
+                  <span className="text-white text-xs font-medium tracking-wide">REC</span>
                 </div>
               )}
             </div>
