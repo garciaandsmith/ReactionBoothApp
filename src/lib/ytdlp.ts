@@ -97,9 +97,6 @@ function isPermanentError(message: string): boolean {
     // Region / copyright restrictions never resolve with a different client.
     "not available in your country",
     "not available in your region",
-    // Format errors won't resolve by switching player client — the binary
-    // is outdated or the video genuinely has no downloadable streams.
-    "requested format is not available",
   ].some((s) => message.toLowerCase().includes(s.toLowerCase()));
 }
 
