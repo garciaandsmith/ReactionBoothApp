@@ -1,18 +1,20 @@
 import { join } from "path";
 import { tmpdir } from "os";
-import { access, chmod, writeFile } from "fs/promises";
+import { chmod, stat, unlink, writeFile } from "fs/promises";
 import YTDlpWrap from "yt-dlp-wrap";
 
 // Binary is cached in /tmp between warm Lambda invocations.
 const BINARY_PATH = join(tmpdir(), "yt-dlp");
+// Re-download the binary if the cached copy is older than this threshold.
+// YouTube regularly changes its internal API; an outdated binary produces
+// "Requested format is not available" for every format selector.
+const BINARY_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // Cookies are written here whenever the content changes.
 const COOKIES_PATH = join(tmpdir(), "yt-dlp-cookies.txt");
 
 // Module-level singletons.
 let _binaryReady: Promise<string> | null = null;
-// Self-update is attempted once per process lifetime after the binary is ready.
-let _updateDone: Promise<void> | null = null;
 // Track the last cookies content written so we only rewrite on change.
 let _cookiesContent: string | null = null;
 
@@ -21,48 +23,47 @@ const STANDALONE_URLS: Partial<Record<NodeJS.Architecture, string>> = {
   arm64: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux_aarch64",
 };
 
-async function ensureBinary(): Promise<string> {
-  try {
-    await access(BINARY_PATH);
-    return BINARY_PATH;
-  } catch {
-    const standaloneUrl =
-      process.platform === "linux" ? STANDALONE_URLS[process.arch] : undefined;
-    if (standaloneUrl) {
-      await YTDlpWrap.downloadFile(standaloneUrl, BINARY_PATH);
-    } else {
-      await YTDlpWrap.downloadFromGithub(BINARY_PATH);
-    }
-    await chmod(BINARY_PATH, 0o755);
-    return BINARY_PATH;
+async function downloadBinary(): Promise<string> {
+  const standaloneUrl =
+    process.platform === "linux" ? STANDALONE_URLS[process.arch] : undefined;
+  if (standaloneUrl) {
+    await YTDlpWrap.downloadFile(standaloneUrl, BINARY_PATH);
+  } else {
+    await YTDlpWrap.downloadFromGithub(BINARY_PATH);
   }
+  await chmod(BINARY_PATH, 0o755);
+  return BINARY_PATH;
 }
 
-function getBinary(): Promise<string> {
+/**
+ * Returns a ready yt-dlp binary path, downloading or re-downloading as needed.
+ * If the cached binary is older than BINARY_MAX_AGE_MS it is deleted and
+ * replaced with the latest release *before* any download request is attempted,
+ * so we never silently use an outdated binary.
+ */
+async function getBinary(): Promise<string> {
+  // If we have a cached ready-promise, verify the binary on disk is still
+  // fresh enough.  If stale, delete it so downloadBinary() fetches the latest.
+  if (_binaryReady) {
+    try {
+      const s = await stat(BINARY_PATH);
+      if (Date.now() - s.mtimeMs > BINARY_MAX_AGE_MS) {
+        console.log("[yt-dlp] cached binary is >24 h old — fetching latest release");
+        await unlink(BINARY_PATH).catch(() => {});
+        _binaryReady = null;
+      }
+    } catch {
+      _binaryReady = null; // file removed externally — re-download
+    }
+  }
+
   if (!_binaryReady) {
-    _binaryReady = ensureBinary().catch((err) => {
+    _binaryReady = downloadBinary().catch((err) => {
       _binaryReady = null;
       throw err;
     });
   }
   return _binaryReady;
-}
-
-/**
- * Run `yt-dlp -U` once per process lifetime so the cached binary stays
- * current.  YouTube regularly changes its internal API; an outdated binary
- * fails to parse the format listing and produces "Requested format is not
- * available" for every selector, including `best`.
- *
- * The update is fire-and-forget for speed — download requests are NOT held
- * waiting for it.  On the next process start the updated binary is used.
- */
-function scheduleUpdate(binaryPath: string): void {
-  if (_updateDone) return;
-  _updateDone = new YTDlpWrap(binaryPath)
-    .execPromise(["-U"])
-    .then(() => console.log("[yt-dlp] binary self-updated"))
-    .catch((e) => console.warn("[yt-dlp] self-update failed (non-fatal):", e));
 }
 
 /**
@@ -100,15 +101,15 @@ function isPermanentError(message: string): boolean {
   ].some((s) => message.toLowerCase().includes(s.toLowerCase()));
 }
 
-// Player clients tried in order.  tv_embedded is least bot-guarded; android
-// and web are fallbacks for videos that reject the embedded client.
-const PLAYER_CLIENTS = ["tv_embedded,web", "android", "web"] as const;
+// Player clients tried in order.  tv_embedded is least bot-guarded; ios and
+// android bypass most format restrictions; web is the last resort.
+const PLAYER_CLIENTS = ["tv_embedded,web", "ios", "android", "web"] as const;
 const RETRY_DELAY_MS = 2_000;
 
 /**
  * Download a YouTube video to `outputPath` using yt-dlp.
  *
- * Retries up to three times, rotating through player clients on each attempt.
+ * Retries up to four times, rotating through player clients on each attempt.
  * Permanent errors (private / removed videos) are surfaced immediately.
  *
  * @param cookiesContent  Netscape-format cookie file content, sourced from
@@ -123,9 +124,6 @@ export async function downloadWithYtDlp(
     getBinary(),
     getCookiesPath(cookiesContent),
   ]);
-
-  // Keep the binary current in the background (once per process lifetime).
-  scheduleUpdate(binaryPath);
 
   const ytDlp = new YTDlpWrap(binaryPath);
   const proxy = process.env.YTDLP_PROXY;
