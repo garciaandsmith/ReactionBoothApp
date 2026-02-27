@@ -75,10 +75,21 @@ async function getBinary(): Promise<string> {
 async function getCookiesPath(overrideCookies?: string): Promise<string | null> {
   const cookies = overrideCookies ?? process.env.YOUTUBE_COOKIES;
   if (!cookies) return null;
-  if (cookies !== _cookiesContent) {
-    await writeFile(COOKIES_PATH, cookies, "utf8");
-    _cookiesContent = cookies;
+
+  // Skip writing only if content is unchanged AND the file still exists on
+  // disk.  /tmp can be cleared while module state persists on a warm instance,
+  // which would leave the cached path pointing at a non-existent file.
+  if (cookies === _cookiesContent) {
+    try {
+      await stat(COOKIES_PATH);
+      return COOKIES_PATH; // file confirmed present, content unchanged
+    } catch {
+      // file missing — fall through to re-write
+    }
   }
+
+  await writeFile(COOKIES_PATH, cookies, "utf8");
+  _cookiesContent = cookies;
   return COOKIES_PATH;
 }
 
@@ -95,6 +106,8 @@ function isPermanentError(message: string): boolean {
     "This video has been removed",
     "members-only",
     "sign in to confirm your age",
+    // Bot-detection: switching player clients can't change the server IP.
+    "confirm you're not a bot",
     // Region / copyright restrictions never resolve with a different client.
     "not available in your country",
     "not available in your region",
