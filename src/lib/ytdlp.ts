@@ -11,6 +11,8 @@ const COOKIES_PATH = join(tmpdir(), "yt-dlp-cookies.txt");
 
 // Module-level singletons.
 let _binaryReady: Promise<string> | null = null;
+// Self-update is attempted once per process lifetime after the binary is ready.
+let _updateDone: Promise<void> | null = null;
 // Track the last cookies content written so we only rewrite on change.
 let _cookiesContent: string | null = null;
 
@@ -47,6 +49,23 @@ function getBinary(): Promise<string> {
 }
 
 /**
+ * Run `yt-dlp -U` once per process lifetime so the cached binary stays
+ * current.  YouTube regularly changes its internal API; an outdated binary
+ * fails to parse the format listing and produces "Requested format is not
+ * available" for every selector, including `best`.
+ *
+ * The update is fire-and-forget for speed — download requests are NOT held
+ * waiting for it.  On the next process start the updated binary is used.
+ */
+function scheduleUpdate(binaryPath: string): void {
+  if (_updateDone) return;
+  _updateDone = new YTDlpWrap(binaryPath)
+    .execPromise(["-U"])
+    .then(() => console.log("[yt-dlp] binary self-updated"))
+    .catch((e) => console.warn("[yt-dlp] self-update failed (non-fatal):", e));
+}
+
+/**
  * Write cookies to /tmp if the content has changed since the last write.
  * Accepts an explicit cookies string (from the DB) or falls back to the
  * YOUTUBE_COOKIES env variable.  Returns the file path, or null if no
@@ -75,6 +94,12 @@ function isPermanentError(message: string): boolean {
     "This video has been removed",
     "members-only",
     "sign in to confirm your age",
+    // Region / copyright restrictions never resolve with a different client.
+    "not available in your country",
+    "not available in your region",
+    // Format errors won't resolve by switching player client — the binary
+    // is outdated or the video genuinely has no downloadable streams.
+    "requested format is not available",
   ].some((s) => message.toLowerCase().includes(s.toLowerCase()));
 }
 
@@ -102,6 +127,9 @@ export async function downloadWithYtDlp(
     getCookiesPath(cookiesContent),
   ]);
 
+  // Keep the binary current in the background (once per process lifetime).
+  scheduleUpdate(binaryPath);
+
   const ytDlp = new YTDlpWrap(binaryPath);
   const proxy = process.env.YTDLP_PROXY;
 
@@ -112,7 +140,7 @@ export async function downloadWithYtDlp(
     const args: string[] = [
       videoUrl,
       "--extractor-args", `youtube:player_client=${client}`,
-      "-f", "bestvideo[height<=1080]+bestaudio/bestvideo+bestaudio/best",
+      "-f", "bestvideo[height<=1080]+bestaudio/bestvideo+bestaudio/best/bestvideo/bestaudio",
       "--merge-output-format", "mp4",
       "--no-playlist",
       "--no-warnings",
