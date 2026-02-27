@@ -5,7 +5,7 @@ const nextConfig = {
     // never auto-included. This explicitly adds the ffmpeg-static binary to
     // the Lambda package for all API routes.
     outputFileTracingIncludes: {
-      "/api/**": ["./node_modules/ffmpeg-static/**/*"],
+      "/api/**": ["./node_modules/ffmpeg-static/**/*", "./public/watermark.png"],
     },
   },
   images: {
