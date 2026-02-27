@@ -1,13 +1,28 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { join } from "path";
+import { existsSync } from "fs";
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
-// ffmpeg-static ships a pre-compiled static binary inside node_modules —
-// no system ffmpeg needed, works in Vercel Lambda.
-import ffmpegPath from "ffmpeg-static";
 import { downloadWithYtDlp } from "./ytdlp";
 import type { ReactionEventLog, WatchLayout, ComposeVolumeSettings } from "./types";
+
+// Resolve the ffmpeg binary path without relying on __dirname — webpack
+// mangles __dirname to the bundle output directory when it bundles
+// ffmpeg-static, producing a nonsense path like:
+//   /var/task/.next/server/app/api/reactions/[id]/compose/ffmpeg
+// Instead we probe the filesystem at known locations directly.
+// outputFileTracingIncludes in next.config.mjs ensures the binary is copied
+// into the Vercel Lambda package at /var/task/node_modules/ffmpeg-static/.
+const ffmpegPath: string | null = (() => {
+  for (const p of [
+    "/var/task/node_modules/ffmpeg-static/ffmpeg", // Vercel / AWS Lambda
+    join(process.cwd(), "node_modules/ffmpeg-static/ffmpeg"), // local dev
+  ]) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+})();
 
 const execFileAsync = promisify(execFile);
 
