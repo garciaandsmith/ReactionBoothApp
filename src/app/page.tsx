@@ -2,6 +2,10 @@ import Link from "next/link";
 import Image from "next/image";
 import AnimatedLogo from "@/components/AnimatedLogo";
 import HeroBackground from "@/components/HeroBackground";
+import IllustrationHero from "@/components/illustrations/IllustrationHero";
+import IllustrationStepLink from "@/components/illustrations/IllustrationStepLink";
+import IllustrationStepRecord from "@/components/illustrations/IllustrationStepRecord";
+import IllustrationStepWatch from "@/components/illustrations/IllustrationStepWatch";
 import { isMaintenanceMode } from "@/lib/maintenance";
 
 export default async function Home() {
@@ -30,14 +34,11 @@ export default async function Home() {
 
   return (
     <div>
-      {/* Hero — full viewport width so background fills edge-to-edge */}
-      <section className="relative w-full overflow-hidden bg-off-white" style={{ minHeight: "520px" }}>
-        {/* Cursor-reactive geometric circles */}
+      {/* ── Hero ── */}
+      <section className="relative w-full overflow-hidden bg-off-white" style={{ minHeight: "560px" }}>
         <HeroBackground />
 
-        {/* Content — centred, width-constrained */}
-        <div className="relative z-10 max-w-5xl mx-auto px-6 pt-20 pb-20 text-center">
-          {/* Large animated wordmark */}
+        <div className="relative z-10 max-w-5xl mx-auto px-6 pt-20 pb-10 text-center">
           <div id="hero-wordmark" className="flex justify-center mb-10">
             <AnimatedLogo width={900} height={160} className="w-full max-w-3xl h-auto" />
           </div>
@@ -69,7 +70,14 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* How It Works */}
+      {/* ── Hero illustration ── */}
+      <section className="bg-brand-50/40 border-b border-brand-100/60">
+        <div className="max-w-4xl mx-auto px-6 py-10">
+          <IllustrationHero className="w-full h-auto drop-shadow-sm" />
+        </div>
+      </section>
+
+      {/* ── How It Works ── */}
       <section
         id="how-it-works"
         className="max-w-5xl mx-auto px-4 py-20 border-t border-gray-100"
@@ -86,22 +94,12 @@ export default async function Home() {
         <p className="text-gray-500 text-center mb-16 max-w-xl mx-auto">
           No software to install, no editing required. Anyone can use it.
         </p>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {/* Step 1 */}
           <div className="text-center">
-            <div className="w-14 h-14 bg-brand-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#2EE6A6"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </svg>
+            <div className="bg-brand-50/70 rounded-2xl overflow-hidden mb-5 mx-auto max-w-[260px]">
+              <IllustrationStepLink className="w-full h-auto" />
             </div>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
               1. Paste a YouTube link
@@ -111,24 +109,11 @@ export default async function Home() {
               something funny you found at 2am.
             </p>
           </div>
+
+          {/* Step 2 */}
           <div className="text-center">
-            <div className="w-14 h-14 bg-brand-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#2EE6A6"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="18" cy="5" r="3" />
-                <circle cx="6" cy="12" r="3" />
-                <circle cx="18" cy="19" r="3" />
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-              </svg>
+            <div className="bg-brand-50/70 rounded-2xl overflow-hidden mb-5 mx-auto max-w-[260px]">
+              <IllustrationStepRecord className="w-full h-auto" />
             </div>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
               2. Share the link
@@ -138,21 +123,11 @@ export default async function Home() {
               want — text, DM, email, you name it.
             </p>
           </div>
+
+          {/* Step 3 */}
           <div className="text-center">
-            <div className="w-14 h-14 bg-brand-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#2EE6A6"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M23 7l-7 5 7 5V7z" />
-                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-              </svg>
+            <div className="bg-brand-50/70 rounded-2xl overflow-hidden mb-5 mx-auto max-w-[260px]">
+              <IllustrationStepWatch className="w-full h-auto" />
             </div>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
               3. Watch the reaction
@@ -165,60 +140,86 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Use Cases */}
+      {/* ── Use Cases ── */}
       <section className="bg-white border-y border-gray-100">
         <div className="max-w-5xl mx-auto px-4 py-20">
           <h2 className="text-3xl font-bold text-gray-900 text-center mb-16">
             Perfect for real moments
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {[
-              {
-                title: "Family surprises",
-                desc: "Send a pregnancy announcement, wedding video, or family reunion clip",
-                icon: "M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z",
-              },
-              {
-                title: "Creative testing",
-                desc: "Share a music video, short film, or project and get unfiltered feedback",
-                icon: "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
-              },
-              {
-                title: "Friend moments",
-                desc: "Send a meme, throwback video, or inside joke and capture the laugh",
-                icon: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75",
-              },
-              {
-                title: "Big reveals",
-                desc: "Gender reveals, gift unboxings, acceptance letters — the real stuff",
-                icon: "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12",
-              },
-            ].map((item) => (
-              <div key={item.title} className="bg-gray-50 rounded-2xl p-6">
-                <svg
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#2EE6A6"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="mb-4"
-                >
-                  <path d={item.icon} />
-                </svg>
-                <h3 className="font-semibold text-gray-900 mb-1">
-                  {item.title}
-                </h3>
-                <p className="text-sm text-gray-500">{item.desc}</p>
-              </div>
-            ))}
+            {/* Family surprises */}
+            <div className="bg-gray-50 rounded-2xl p-6">
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none" className="mb-4">
+                <rect width="48" height="48" rx="12" fill="#E8FDF5" />
+                {/* house */}
+                <path d="M10 28 L24 14 L38 28 L38 40 L10 40Z" fill="#2EE6A6" stroke="#121212" strokeWidth="1.5" strokeLinejoin="round" />
+                <rect x="18" y="31" width="12" height="9" rx="2" fill="#F7F9F8" stroke="#121212" strokeWidth="1.2" />
+                {/* sparkle */}
+                <path d="M35 12 L36 8 L37 12 L41 13 L37 14 L36 18 L35 14 L31 13Z" fill="#2EE6A6" />
+              </svg>
+              <h3 className="font-semibold text-gray-900 mb-1">Family surprises</h3>
+              <p className="text-sm text-gray-500">
+                Send a pregnancy announcement, wedding video, or family reunion clip
+              </p>
+            </div>
+
+            {/* Creative testing */}
+            <div className="bg-gray-50 rounded-2xl p-6">
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none" className="mb-4">
+                <rect width="48" height="48" rx="12" fill="#E8FDF5" />
+                {/* film strip */}
+                <rect x="8" y="16" width="32" height="20" rx="3" fill="#121212" stroke="#121212" strokeWidth="1.5" />
+                <rect x="11" y="19" width="6" height="6" rx="1" fill="#F7F9F8" fillOpacity="0.3" />
+                <rect x="21" y="19" width="6" height="6" rx="1" fill="#F7F9F8" fillOpacity="0.3" />
+                <rect x="31" y="19" width="6" height="6" rx="1" fill="#F7F9F8" fillOpacity="0.3" />
+                {/* play button */}
+                <circle cx="24" cy="29" r="5" fill="#2EE6A6" />
+                <polygon points="22,27 22,31 27,29" fill="#121212" />
+              </svg>
+              <h3 className="font-semibold text-gray-900 mb-1">Creative testing</h3>
+              <p className="text-sm text-gray-500">
+                Share a music video, short film, or project and get unfiltered feedback
+              </p>
+            </div>
+
+            {/* Friend moments */}
+            <div className="bg-gray-50 rounded-2xl p-6">
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none" className="mb-4">
+                <rect width="48" height="48" rx="12" fill="#E8FDF5" />
+                {/* two chat bubbles */}
+                <path d="M8 12 Q8 8 12 8 L30 8 Q34 8 34 12 L34 22 Q34 26 30 26 L20 26 L14 32 L14 26 L12 26 Q8 26 8 22Z" fill="#2EE6A6" stroke="#121212" strokeWidth="1.5" strokeLinejoin="round" />
+                <path d="M18 28 Q18 24 22 24 L36 24 Q40 24 40 28 L40 36 Q40 40 36 40 L30 40 L26 44 L26 40 L22 40 Q18 40 18 36Z" fill="#F7F9F8" stroke="#121212" strokeWidth="1.5" strokeLinejoin="round" />
+                {/* dots in bubbles */}
+                <circle cx="16" cy="17" r="2" fill="white" />
+                <circle cx="21" cy="17" r="2" fill="white" />
+                <circle cx="26" cy="17" r="2" fill="white" />
+              </svg>
+              <h3 className="font-semibold text-gray-900 mb-1">Friend moments</h3>
+              <p className="text-sm text-gray-500">
+                Send a meme, throwback video, or inside joke and capture the laugh
+              </p>
+            </div>
+
+            {/* Big reveals */}
+            <div className="bg-gray-50 rounded-2xl p-6">
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none" className="mb-4">
+                <rect width="48" height="48" rx="12" fill="#E8FDF5" />
+                {/* envelope */}
+                <rect x="6" y="16" width="36" height="24" rx="4" fill="#F7F9F8" stroke="#121212" strokeWidth="1.5" />
+                <path d="M6 18 L24 30 L42 18" stroke="#121212" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+                {/* star bursting from envelope */}
+                <path d="M28 12 L30 6 L32 12 L38 14 L32 16 L30 22 L28 16 L22 14Z" fill="#2EE6A6" stroke="#121212" strokeWidth="1" />
+              </svg>
+              <h3 className="font-semibold text-gray-900 mb-1">Big reveals</h3>
+              <p className="text-sm text-gray-500">
+                Gender reveals, gift unboxings, acceptance letters — the real stuff
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Pricing */}
+      {/* ── Pricing ── */}
       <section id="pricing" className="max-w-5xl mx-auto px-4 py-20">
         <h2 className="text-3xl font-bold text-gray-900 text-center mb-4">
           Simple pricing
@@ -319,16 +320,33 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* CTA */}
+      {/* ── CTA ── */}
       <section className="bg-white border-t border-gray-100">
         <div className="max-w-5xl mx-auto px-4 py-20 text-center">
-          <Image
-            src="/assets/mascotjoy.svg"
-            alt="Celebrating mascot"
-            width={96}
-            height={96}
-            className="mx-auto mb-6 mascot-joy"
-          />
+          {/* mascot with sparkle decorations */}
+          <div className="relative w-24 mx-auto mb-6">
+            {/* glow ring behind mascot */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-36 h-36 bg-brand/25 rounded-full blur-2xl" />
+            <Image
+              src="/assets/mascotjoy.svg"
+              alt="Celebrating mascot"
+              width={96}
+              height={96}
+              className="relative mascot-joy"
+            />
+            {/* sparkle top-right */}
+            <svg className="absolute -top-3 -right-7 w-7 h-7 sparkle-a" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+              <path d="M14 1 L16 12 L14 27 L12 12Z M1 14 L12 16 L27 14 L12 12Z" fill="#2EE6A6" />
+            </svg>
+            {/* sparkle top-left */}
+            <svg className="absolute -top-1 -left-8 w-5 h-5 sparkle-b" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+              <path d="M14 1 L16 12 L14 27 L12 12Z M1 14 L12 16 L27 14 L12 12Z" fill="#2EE6A6" />
+            </svg>
+            {/* sparkle bottom-right */}
+            <svg className="absolute -bottom-2 -right-3 w-4 h-4 sparkle-c" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+              <path d="M14 1 L16 12 L14 27 L12 12Z M1 14 L12 16 L27 14 L12 12Z" fill="#121212" fillOpacity="0.4" />
+            </svg>
+          </div>
           <h2 className="text-3xl font-bold text-gray-900 mb-4">
             &ldquo;I wish I could see your face when you watch this.&rdquo;
           </h2>

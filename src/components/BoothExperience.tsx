@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import Image from "next/image";
 import { upload } from "@vercel/blob/client";
 import DualRecorder from "./DualRecorder";
+import IllustrationBoothDone from "./illustrations/IllustrationBoothDone";
 import type { ReactionEventLog } from "@/lib/types";
 
 interface Reaction {
@@ -70,13 +71,30 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
   if (step === "welcome") {
     return (
       <div className="max-w-lg mx-auto text-center py-12 px-4">
-        <Image
-          src="/assets/mascotsmile.svg"
-          alt="Smiling mascot welcoming you"
-          width={96}
-          height={96}
-          className="mx-auto mb-6 mascot-float"
-        />
+        {/* mascot with floating sparkle decorations */}
+        <div className="relative w-24 mx-auto mb-6">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-brand/20 rounded-full blur-2xl" />
+          <Image
+            src="/assets/mascotsmile.svg"
+            alt="Smiling mascot welcoming you"
+            width={96}
+            height={96}
+            className="relative mascot-float"
+          />
+          {/* sparkle top-right */}
+          <svg className="absolute -top-3 -right-7 w-7 h-7 sparkle-a" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+            <path d="M14 1 L16 12 L14 27 L12 12Z M1 14 L12 16 L27 14 L12 12Z" fill="#2EE6A6" />
+          </svg>
+          {/* sparkle top-left */}
+          <svg className="absolute top-0 -left-8 w-5 h-5 sparkle-b" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+            <path d="M14 1 L16 12 L14 27 L12 12Z M1 14 L12 16 L27 14 L12 12Z" fill="#2EE6A6" />
+          </svg>
+          {/* small dot bottom-left */}
+          <svg className="absolute -bottom-1 -left-3 w-4 h-4 sparkle-c" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+            <path d="M14 1 L16 12 L14 27 L12 12Z M1 14 L12 16 L27 14 L12 12Z" fill="#121212" fillOpacity="0.35" />
+          </svg>
+        </div>
+
         <h1 className="text-2xl font-bold text-gray-900 mb-3">
           You&apos;ve been invited to a Reaction Booth!
         </h1>
@@ -202,14 +220,8 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
 
   // done
   return (
-    <div className="max-w-md mx-auto text-center py-20 px-4">
-      <Image
-        src="/assets/mascotjoy.svg"
-        alt="Celebrating mascot"
-        width={96}
-        height={96}
-        className="mx-auto mb-6 mascot-joy"
-      />
+    <div className="max-w-md mx-auto text-center py-12 px-4">
+      <IllustrationBoothDone className="w-full max-w-xs mx-auto mb-4 pop-in" />
       <h1 className="text-2xl font-bold text-gray-900 mb-3">
         Reaction recorded!
       </h1>

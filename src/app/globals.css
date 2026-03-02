@@ -49,6 +49,34 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 
+/* ── Illustration decoration animations ── */
+
+/* sparkle: twinkle in / out — three stagger variants */
+@keyframes sparkle {
+  0%, 100% { opacity: 1;   transform: scale(1)   rotate(0deg); }
+  50%       { opacity: 0.2; transform: scale(0.6) rotate(22deg); }
+}
+.sparkle-a { animation: sparkle 2.4s ease-in-out infinite; }
+.sparkle-b { animation: sparkle 3.2s ease-in-out infinite 0.8s; }
+.sparkle-c { animation: sparkle 2.8s ease-in-out infinite 1.6s; }
+
+/* drift: gentle vertical float */
+@keyframes drift {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-10px); }
+}
+.drift-a { animation: drift 4.5s ease-in-out infinite; }
+.drift-b { animation: drift 5.5s ease-in-out infinite 1.5s; }
+
+/* pop-in: bouncy entrance for celebration elements */
+@keyframes pop-in {
+  0%   { opacity: 0; transform: scale(0) rotate(-15deg); }
+  70%  { transform: scale(1.1) rotate(5deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+.pop-in { animation: pop-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+
+
 /* ── Mascot animations ── */
 
 /* mascotsmile: gentle, friendly float */
