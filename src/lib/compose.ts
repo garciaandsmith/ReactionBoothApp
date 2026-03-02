@@ -210,7 +210,6 @@ export async function composeReaction(options: ComposeOptions): Promise<void> {
     eventsLog,
     layout,
     outputPath,
-    watermark = false,
     volume = { youtubeVolume: 100, webcamVolume: 100 },
     cookiesContent,
   } = options;
