@@ -46,7 +46,6 @@ interface TimelineSegment {
 }
 
 const BRAND_HEX = "0x2EE6A6"; // ffmpeg pad-filter format (no #)
-const BRAND_TEXT = "ReactionBooth";
 
 export async function downloadYouTube(
   videoUrl: string,
@@ -114,7 +113,6 @@ function buildFilterGraph(
   segments: TimelineSegment[],
   layout: WatchLayout,
   totalDurationS: number,
-  watermark: boolean,
   volume: ComposeVolumeSettings
 ): string {
   const filters: string[] = [];
@@ -170,8 +168,6 @@ function buildFilterGraph(
   // Video compositing — brand color canvas + precise overlay placement
   const isPip = layout.startsWith("pip-");
   const dur = totalDurationS.toFixed(3);
-  const wmColor = watermark ? "white" : "white@0.5";
-
   if (isPip) {
     filters.push(`[ytv]scale=1485:835:force_original_aspect_ratio=increase,crop=1485:835[yt_s]`);
     filters.push(`[1:v]scale=674:380:force_original_aspect_ratio=increase,crop=674:380[wc_s]`);
@@ -187,20 +183,14 @@ function buildFilterGraph(
       case "pip-top-left":     wcX = "65";   wcY = "65";  break;
       default:                 wcX = "1181"; wcY = "635";
     }
-    filters.push(`[with_yt][wc_s]overlay=${wcX}:${wcY}[vid_comp]`);
-    filters.push(
-      `[vid_comp]drawtext=text='${BRAND_TEXT}':fontsize=20:fontcolor=${wmColor}:x=70:y=1023[outv]`
-    );
+    filters.push(`[with_yt][wc_s]overlay=${wcX}:${wcY}[outv]`);
 
   } else if (layout === "side-by-side") {
     filters.push(`[ytv]scale=930:540:force_original_aspect_ratio=increase,crop=930:540[yt_s]`);
     filters.push(`[1:v]scale=930:540:force_original_aspect_ratio=increase,crop=930:540[wc_s]`);
     filters.push(`color=c=${BRAND_HEX}:s=1920x1080:d=${dur}[canvas]`);
     filters.push(`[canvas][yt_s]overlay=0:270[with_yt]`);
-    filters.push(`[with_yt][wc_s]overlay=990:270[vid_comp]`);
-    filters.push(
-      `[vid_comp]drawtext=text='${BRAND_TEXT}':fontsize=20:fontcolor=${wmColor}:x=(w-text_w)/2:y=945[outv]`
-    );
+    filters.push(`[with_yt][wc_s]overlay=990:270[outv]`);
 
   } else {
     // stacked
@@ -208,10 +198,7 @@ function buildFilterGraph(
     filters.push(`[1:v]scale=1080:920:force_original_aspect_ratio=increase,crop=1080:920[wc_s]`);
     filters.push(`color=c=${BRAND_HEX}:s=1080x1920:d=${dur}[canvas]`);
     filters.push(`[canvas][yt_s]overlay=0:0[with_yt]`);
-    filters.push(`[with_yt][wc_s]overlay=0:1000[vid_comp]`);
-    filters.push(
-      `[vid_comp]drawtext=text='${BRAND_TEXT}':fontsize=20:fontcolor=${wmColor}:x=(w-text_w)/2:y=940[outv]`
-    );
+    filters.push(`[with_yt][wc_s]overlay=0:1000[outv]`);
   }
 
   return filters.join(";\n");
@@ -238,7 +225,7 @@ export async function composeReaction(options: ComposeOptions): Promise<void> {
 
   try {
     await downloadYouTube(eventsLog.videoUrl, ytPath, cookiesContent);
-    const filterGraph = buildFilterGraph(segments, layout, totalDurationS, watermark, volume);
+    const filterGraph = buildFilterGraph(segments, layout, totalDurationS, volume);
 
     await execFileAsync(ffmpegPath, [
       "-y",
