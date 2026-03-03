@@ -3,9 +3,12 @@ const nextConfig = {
   experimental: {
     // Vercel's nft only traces JS require() calls — raw ELF binaries are
     // never auto-included. This explicitly adds the ffmpeg-static binary to
-    // the Lambda package for all API routes.
+    // the Lambda package for the compose route only — the only route that
+    // invokes ffmpeg. Including it in "/api/**" would bundle the ~90 MB
+    // binary into every API function, bloating the deployment past Vercel's
+    // output-size limit and causing "internal error" during deployment.
     outputFileTracingIncludes: {
-      "/api/**": ["./node_modules/ffmpeg-static/**/*"],
+      "/api/reactions/**/compose": ["./node_modules/ffmpeg-static/**/*"],
     },
   },
   images: {
