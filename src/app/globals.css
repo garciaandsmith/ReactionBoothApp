@@ -184,6 +184,25 @@ h1, h2, h3, h4, h5, h6 {
   display: inline-block;
 }
 
+/* ── Logo eye blink ── */
+
+@keyframes logo-blink {
+  0%, 88%, 100% { transform: scaleY(1); }
+  91%            { transform: scaleY(0.06); }
+  95%            { transform: scaleY(1); }
+}
+.logo-eye-1 {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: logo-blink 5.2s ease-in-out infinite;
+}
+.logo-eye-2 {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: logo-blink 5.2s ease-in-out infinite 0.09s;
+}
+
+
 /* mascotjoy: joyful celebration bounce */
 @keyframes mascot-joy {
   0%   { transform: translateY(0px) rotate(0deg) scale(1); }

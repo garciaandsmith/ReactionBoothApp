@@ -13,8 +13,8 @@ const EYE1_CX = 1093.12;
 const EYE1_CY = 172.96;
 const EYE3_CX = 1229.12;
 const EYE3_CY = 172.96;
-const MAX_OFFSET = 9; // SVG user-units — keeps hole visually inside the ring
-const SPEED = 0.1;
+const MAX_OFFSET = 18; // SVG user-units — keeps hole visually inside the ring
+const SPEED = 0.15;
 
 interface AnimatedLogoProps {
   className?: string;
@@ -132,8 +132,8 @@ export default function AnimatedLogo({
       {/* These white circles represent the transparent hole of each O.
           They shift with the cursor — making one side of the ring look thicker.
           No pupils: the O looks like an O, not an eye. */}
-      <circle ref={hole1Ref} cx={EYE1_CX} cy={EYE1_CY} r="25.4" fill="#f7f9f8" />
-      <circle ref={hole3Ref} cx={EYE3_CX} cy={EYE3_CY} r="25.4" fill="#f7f9f8" />
+      <circle ref={hole1Ref} cx={EYE1_CX} cy={EYE1_CY} r="25.4" fill="#f7f9f8" className="logo-eye-1" />
+      <circle ref={hole3Ref} cx={EYE3_CX} cy={EYE3_CY} r="25.4" fill="#f7f9f8" className="logo-eye-2" />
     </svg>
   );
 }
