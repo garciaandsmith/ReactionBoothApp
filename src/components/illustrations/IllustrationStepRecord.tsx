@@ -7,74 +7,80 @@ export default function IllustrationStepRecord({ className }: { className?: stri
       className={className}
       aria-hidden="true"
     >
-      {/* decorative shapes */}
-      <path d="M15 50 L18 40 L21 50 L31 53 L21 56 L18 66 L15 56 L5 53Z" fill="#2EE6A6" />
-      <path d="M238 42 L240 35 L242 42 L249 44 L242 46 L240 53 L238 46 L231 44Z" fill="#2EE6A6" fillOpacity="0.7" />
-      <circle cx="14" cy="168" r="4" fill="#2EE6A6" fillOpacity="0.6" />
-      <circle cx="248" cy="165" r="4" fill="#121212" fillOpacity="0.18" />
-      <path d="M241 188 L243 181 L245 188 L252 190 L245 192 L243 199 L241 192 L234 190Z" fill="#2EE6A6" fillOpacity="0.5" />
+      {/* ── decorative elements ── */}
+      <circle cx="16"  cy="44"  r="4" fill="#2EE6A6" fillOpacity="0.5" />
+      <circle cx="246" cy="58"  r="3" fill="#2EE6A6" fillOpacity="0.4" />
+      <path d="M18 168 L20 161 L22 168 L29 170 L22 172 L20 179 L18 172 L11 170Z" fill="#2EE6A6" fillOpacity="0.55" className="sparkle-c" />
+      <path d="M236 188 L238 182 L240 188 L246 190 L240 192 L238 198 L236 192 L230 190Z" fill="#2EE6A6" fillOpacity="0.4" className="sparkle-b" />
 
-      {/* webcam body */}
-      <rect x="170" y="28" width="62" height="46" rx="8" fill="#121212" stroke="#121212" strokeWidth="2" />
-      {/* lens */}
-      <circle cx="201" cy="51" r="14" fill="#2D2D2D" stroke="#2EE6A6" strokeWidth="2.5" />
-      <circle cx="201" cy="51" r="8" fill="#1A1A2E" />
-      <circle cx="201" cy="51" r="4" fill="#2EE6A6" fillOpacity="0.4" />
-      <circle cx="198" cy="48" r="2" fill="white" fillOpacity="0.5" />
-      {/* mount */}
-      <rect x="195" y="74" width="12" height="10" rx="3" fill="#121212" />
-      {/* REC badge */}
-      <rect x="172" y="32" width="36" height="14" rx="7" fill="#FF5F5F" />
-      <circle cx="181" cy="39" r="4" fill="white" />
-      <rect x="188" y="36" width="14" height="6" rx="3" fill="white" fillOpacity="0.7" />
-      {/* dashed signal line */}
-      <path d="M201 84 L201 112" stroke="#2EE6A6" strokeWidth="1.5" strokeDasharray="3,4" />
+      {/* ── webcam ── */}
+      {/* stand base */}
+      <rect x="117" y="84" width="26" height="8"  rx="3" fill="#2D2D2D" />
+      <rect x="108" y="90" width="44" height="6"  rx="3" fill="#2D2D2D" />
+      {/* body */}
+      <rect x="108" y="24" width="44" height="62" rx="9" fill="#1a1a1a" />
+      {/* lens ring */}
+      <circle cx="130" cy="50" r="17" fill="#2D2D2D" />
+      <circle cx="130" cy="50" r="11" fill="#111827" />
+      <circle cx="130" cy="50" r="5"  fill="#2EE6A6" fillOpacity="0.35" />
+      <circle cx="126" cy="46" r="2.5" fill="white" fillOpacity="0.5" />
+      {/* accent ring */}
+      <circle cx="130" cy="50" r="17" stroke="#2EE6A6" strokeWidth="2" fill="none" />
 
-      {/* person */}
-      {/* left arm — raised/waving */}
-      <path d="M63 148 Q52 128 58 104" stroke="#2EE6A6" strokeWidth="15" strokeLinecap="round" />
-      <path d="M63 148 Q52 128 58 104" stroke="#121212" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-      <ellipse cx="58" cy="105" rx="11" ry="9" fill="#FFD4AF" stroke="#121212" strokeWidth="1.5" transform="rotate(-15 58 105)" />
-      <path d="M53 99 L50 94 M58 97 L56 91 M64 99 L62 93" stroke="#FFD4AF" strokeWidth="4" strokeLinecap="round" />
-      <path d="M53 99 L50 94 M58 97 L56 91 M64 99 L62 93" stroke="#121212" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+      {/* REC badge — pulsing via CSS class */}
+      <rect x="111" y="27" width="42" height="16" rx="8" fill="#FF5F5F" className="sparkle-a" />
+      <circle cx="122" cy="35" r="4.5" fill="white" />
+      <rect x="129" y="31" width="18" height="7" rx="3.5" fill="white" fillOpacity="0.8" />
 
-      {/* right arm — relaxed */}
-      <path d="M147 150 Q158 170 158 192" stroke="#2EE6A6" strokeWidth="15" strokeLinecap="round" />
-      <path d="M147 150 Q158 170 158 192" stroke="#121212" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-      <ellipse cx="158" cy="191" rx="11" ry="8" fill="#FFD4AF" stroke="#121212" strokeWidth="1.5" />
+      {/* signal arc lines */}
+      <path d="M130 103 L130 116" stroke="#2EE6A6" strokeWidth="2" strokeDasharray="3,3" strokeLinecap="round" />
 
-      {/* torso — green shirt */}
-      <path d="M40 220 L43 168 Q46 152 62 145 Q78 140 98 138 L112 137 Q128 140 142 147 Q152 154 152 168 L156 220Z" fill="#2EE6A6" stroke="#121212" strokeWidth="2" />
-      <path d="M95 138 Q105 148 112 138" stroke="#121212" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+      {/* ── character ── */}
+      {/* body — green shirt, no outline */}
+      <path d="M36 220 L38 172 Q40 158 55 150 Q68 144 86 142 L100 141 Q114 144 128 150 Q140 157 141 171 L145 220Z" fill="#2EE6A6" />
+      {/* collar V */}
+      <path d="M85 142 Q92 152 100 142" stroke="#121212" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeOpacity="0.4" />
+
+      {/* left arm — raised in wave */}
+      <path d="M42 164 Q30 142 34 120" stroke="#2EE6A6" strokeWidth="14" strokeLinecap="round" />
+      <ellipse cx="34" cy="120" rx="10" ry="8" fill="#FFD4AF" transform="rotate(-15 34 120)" />
+      {/* fingers suggestion */}
+      <path d="M29 114 L27 109 M34 112 L32 107 M39 114 L37 108" stroke="#FFD4AF" strokeWidth="3.5" strokeLinecap="round" />
+
+      {/* right arm — relaxed down */}
+      <path d="M138 164 Q148 182 148 200" stroke="#2EE6A6" strokeWidth="14" strokeLinecap="round" />
+      <ellipse cx="148" cy="199" rx="10" ry="7" fill="#FFD4AF" />
 
       {/* neck */}
-      <rect x="96" y="124" width="22" height="18" rx="7" fill="#FFD4AF" stroke="#121212" strokeWidth="1.5" />
+      <rect x="83" y="128" width="18" height="16" rx="7" fill="#FFD4AF" />
 
       {/* head */}
-      <ellipse cx="107" cy="93" rx="35" ry="40" fill="#FFD4AF" stroke="#121212" strokeWidth="2" />
-      {/* hair — dark wavy */}
-      <path d="M72 81 Q74 44 107 46 Q140 44 142 81 Q138 55 107 57 Q76 55 72 81Z" fill="#2D2020" />
-      <path d="M72 78 Q65 93 68 113" stroke="#2D2020" strokeWidth="3" fill="none" strokeLinecap="round" />
-      <path d="M142 78 Q149 93 146 113" stroke="#2D2020" strokeWidth="3" fill="none" strokeLinecap="round" />
+      <ellipse cx="92" cy="100" rx="30" ry="34" fill="#FFD4AF" />
 
-      {/* ear */}
-      <path d="M72 93 Q60 90 60 103 Q60 116 72 113 L72 93Z" fill="#FFD4AF" stroke="#121212" strokeWidth="1.5" />
+      {/* hair — darker warm brown */}
+      <path d="M62 88 Q64 56 92 58 Q120 56 122 88 Q118 66 92 68 Q66 66 62 88Z" fill="#2D2020" />
+      <path d="M62 85 Q56 98 59 116" stroke="#2D2020" strokeWidth="4" strokeLinecap="round" fill="none" />
+      <path d="M122 85 Q128 98 125 116" stroke="#2D2020" strokeWidth="4" strokeLinecap="round" fill="none" />
 
-      {/* eyes — surprised wide open */}
-      <ellipse cx="93" cy="92" rx="8" ry="9.5" fill="white" stroke="#121212" strokeWidth="1.5" />
-      <circle cx="95" cy="94" r="5" fill="#121212" />
-      <circle cx="96.5" cy="92" r="1.5" fill="white" />
-      <ellipse cx="121" cy="92" rx="8" ry="9.5" fill="white" stroke="#121212" strokeWidth="1.5" />
-      <circle cx="123" cy="94" r="5" fill="#121212" />
-      <circle cx="124.5" cy="92" r="1.5" fill="white" />
+      {/* ears */}
+      <ellipse cx="62"  cy="104" rx="7" ry="9" fill="#FFD4AF" />
+      <ellipse cx="122" cy="104" rx="7" ry="9" fill="#FFD4AF" />
 
-      {/* eyebrows raised high */}
-      <path d="M84 79 Q93 71 102 78" stroke="#2D2020" strokeWidth="2" fill="none" strokeLinecap="round" />
-      <path d="M112 78 Q121 71 130 79" stroke="#2D2020" strokeWidth="2" fill="none" strokeLinecap="round" />
+      {/* eyes — wide open, surprised */}
+      <ellipse cx="80"  cy="100" rx="8.5" ry="10" fill="white" />
+      <circle  cx="82"  cy="102" r="6"   fill="#2D2020" />
+      <circle  cx="84"  cy="99"  r="2"   fill="white" />
+      <ellipse cx="104" cy="100" rx="8.5" ry="10" fill="white" />
+      <circle  cx="106" cy="102" r="6"   fill="#2D2020" />
+      <circle  cx="108" cy="99"  r="2"   fill="white" />
+
+      {/* eyebrows — raised with surprise */}
+      <path d="M71 86 Q80 78 89 84" stroke="#2D2020" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+      <path d="M95 84 Q104 78 113 86" stroke="#2D2020" strokeWidth="2.5" fill="none" strokeLinecap="round" />
 
       {/* surprised O mouth */}
-      <ellipse cx="107" cy="113" rx="8" ry="10" fill="#121212" />
-      <ellipse cx="107" cy="113" rx="5" ry="7" fill="#1A1A2E" />
+      <ellipse cx="92" cy="118" rx="7" ry="9" fill="#2D2020" />
+      <ellipse cx="92" cy="118" rx="4" ry="6" fill="#111827" />
     </svg>
   );
 }

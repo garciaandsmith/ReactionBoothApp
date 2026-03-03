@@ -16,14 +16,29 @@
   --color-muted-gray: #EAEAEA;
 
   /* Surface / text defaults (light mode) */
-  --background: #F7F9F8;
-  --foreground: #121212;
+  --background:    #F7F9F8;
+  --foreground:    #121212;
+
+  /* Semantic surface tokens */
+  --surface:       #ffffff;
+  --surface-alt:   #f4f6f5;
+  --surface-card:  #f0f2f1;
+  --border:        #e4e7e5;
+  --border-subtle: #eef0ef;
+  --text-muted:    #6b7280;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #111111;
-    --foreground: #F5F5F5;
+    --background:    #111111;
+    --foreground:    #F5F5F5;
+
+    --surface:       #1c1c1c;
+    --surface-alt:   #161616;
+    --surface-card:  #232323;
+    --border:        #2e2e2e;
+    --border-subtle: #242424;
+    --text-muted:    #9ca3af;
   }
 }
 
@@ -45,6 +60,40 @@ h1, h2, h3, h4, h5, h6 {
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+}
+
+
+/* ── Scroll reveal ── */
+
+@keyframes revealUp {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+.reveal-hidden {
+  opacity: 0;
+  transform: translateY(22px);
+}
+
+.reveal-visible {
+  animation: revealUp 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+
+/* ── Card hover lift ── */
+
+.card-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.card-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.10);
+}
+
+@media (prefers-color-scheme: dark) {
+  .card-lift:hover {
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.40);
   }
 }
 
