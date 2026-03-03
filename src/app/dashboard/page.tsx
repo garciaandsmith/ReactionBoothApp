@@ -18,15 +18,28 @@ interface Reaction {
   completedAt: string | null;
   recordingUrl: string | null;
   watermarked: boolean;
+  downloadCount: number;
 }
 
 type Tab = "booths" | "create";
+type ViewMode = "mosaic" | "list";
+
+const STATUS_ORDER = ["completed", "pending", "opened", "recording", "expired"] as const;
+const STATUS_LABELS: Record<string, string> = {
+  completed: "Completed",
+  pending: "Awaiting Response",
+  opened: "Opened",
+  recording: "Recording in Progress",
+  expired: "Expired",
+};
 
 export default function DashboardPage() {
   const { data: session, status: authStatus } = useSession();
   const [reactions, setReactions] = useState<Reaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("booths");
+  const [viewMode, setViewMode] = useState<ViewMode>("mosaic");
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
 
   const fetchReactions = useCallback(async () => {
     try {
@@ -50,6 +63,18 @@ export default function DashboardPage() {
     fetchReactions();
     setActiveTab("booths");
   }, [fetchReactions]);
+
+  const toggleSection = useCallback((status: string) => {
+    setCollapsedSections((prev: Set<string>) => {
+      const next = new Set(prev);
+      if (next.has(status)) {
+        next.delete(status);
+      } else {
+        next.add(status);
+      }
+      return next;
+    });
+  }, []);
 
   if (authStatus === "loading") {
     return (
@@ -182,28 +207,91 @@ export default function DashboardPage() {
               </div>
             ) : (
               <>
+                {/* View mode toggle */}
+                <div className="flex justify-end mb-4">
+                  <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-1">
+                    <button
+                      onClick={() => setViewMode("mosaic")}
+                      title="Mosaic view"
+                      className={`p-1.5 rounded transition-colors ${
+                        viewMode === "mosaic" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:text-gray-600"
+                      }`}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="3" width="7" height="7" />
+                        <rect x="14" y="3" width="7" height="7" />
+                        <rect x="3" y="14" width="7" height="7" />
+                        <rect x="14" y="14" width="7" height="7" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => setViewMode("list")}
+                      title="List view"
+                      className={`p-1.5 rounded transition-colors ${
+                        viewMode === "list" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:text-gray-600"
+                      }`}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="8" y1="6" x2="21" y2="6" />
+                        <line x1="8" y1="12" x2="21" y2="12" />
+                        <line x1="8" y1="18" x2="21" y2="18" />
+                        <line x1="3" y1="6" x2="3.01" y2="6" />
+                        <line x1="3" y1="12" x2="3.01" y2="12" />
+                        <line x1="3" y1="18" x2="3.01" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Group by status */}
-                {["completed", "pending", "opened", "recording", "expired"].map((status) => {
+                {STATUS_ORDER.map((status) => {
                   const group = reactions.filter((r) => r.status === status);
                   if (group.length === 0) return null;
-                  const labels: Record<string, string> = {
-                    completed: "Completed",
-                    pending: "Awaiting Response",
-                    opened: "Opened",
-                    recording: "Recording in Progress",
-                    expired: "Expired",
-                  };
+                  const isCollapsed = collapsedSections.has(status);
+
                   return (
-                    <div key={status} className="mb-8">
-                      <div className="flex items-center gap-2 mb-3">
-                        <h2 className="text-sm font-semibold text-gray-700">{labels[status]}</h2>
-                        <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{group.length}</span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {group.map((reaction) => (
-                          <BoothCard key={reaction.id} reaction={reaction} />
-                        ))}
-                      </div>
+                    <div key={status} className="mb-6">
+                      {/* Collapsible section header */}
+                      <button
+                        onClick={() => toggleSection(status)}
+                        className="flex items-center gap-2 mb-3 w-full text-left group"
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className={`text-gray-400 transition-transform flex-shrink-0 ${isCollapsed ? "-rotate-90" : ""}`}
+                        >
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                        <h2 className="text-sm font-semibold text-gray-700 group-hover:text-gray-900 transition-colors">
+                          {STATUS_LABELS[status]}
+                        </h2>
+                        <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+                          {group.length}
+                        </span>
+                      </button>
+
+                      {!isCollapsed && (
+                        viewMode === "mosaic" ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {group.map((reaction) => (
+                              <BoothCard key={reaction.id} reaction={reaction} viewMode="mosaic" />
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                            {group.map((reaction) => (
+                              <BoothCard key={reaction.id} reaction={reaction} viewMode="list" />
+                            ))}
+                          </div>
+                        )
+                      )}
                     </div>
                   );
                 })}
