@@ -1,9 +1,12 @@
 import Link from "next/link";
-import Image from "next/image";
+import { getServerSession } from "next-auth";
 import AnimatedLogo from "@/components/AnimatedLogo";
 import HeroBackground from "@/components/HeroBackground";
 import ScrollReveal from "@/components/ScrollReveal";
+import MascotJoyAnimated from "@/components/MascotJoyAnimated";
 import { isMaintenanceMode } from "@/lib/maintenance";
+import { authOptions } from "@/lib/auth";
+import Image from "next/image";
 
 export default async function Home() {
   const maintenance = await isMaintenanceMode();
@@ -29,6 +32,9 @@ export default async function Home() {
     );
   }
 
+  const session = await getServerSession(authOptions);
+  const createHref = session ? "/create" : "/auth/signin";
+
   return (
     <div>
       {/* ── Hero ── */}
@@ -52,7 +58,7 @@ export default async function Home() {
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
-              href="/auth/signin"
+              href={createHref}
               className="bg-brand text-soft-black px-8 py-3.5 rounded-xl font-medium hover:bg-brand-600 transition-colors text-lg"
             >
               Create a Reaction
@@ -86,7 +92,7 @@ export default async function Home() {
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {/* Step 1 — paste a link */}
+          {/* Step 1 — create a booth */}
           <ScrollReveal delay={0}>
             <div className="text-center card-lift rounded-2xl p-8 bg-[var(--surface-alt)]">
               <div className="flex justify-center mb-6">
@@ -105,11 +111,11 @@ export default async function Home() {
                 </svg>
               </div>
               <h3 className="text-lg font-semibold text-foreground mb-2">
-                1. Paste a YouTube link
+                1. Create a booth
               </h3>
               <p className="text-[var(--text-muted)] text-sm">
-                Any video — a wedding clip, music video, big announcement, or
-                something funny you found at 2am.
+                Wedding clips, new songs and old memes — just paste a YouTube URL
+                to create a Reaction Booth.
               </p>
             </div>
           </ScrollReveal>
@@ -133,13 +139,13 @@ export default async function Home() {
                 2. Share the link
               </h3>
               <p className="text-[var(--text-muted)] text-sm">
-                We&apos;ll give you a private booth link. Share it however you
-                want — text, DM, email, you name it.
+                Use text, DM, email, or whatever you want to get a friend to
+                enter a booth and record their live reaction.
               </p>
             </div>
           </ScrollReveal>
 
-          {/* Step 3 — watch the reaction */}
+          {/* Step 3 — watch, download, share */}
           <ScrollReveal delay={300}>
             <div className="text-center card-lift rounded-2xl p-8 bg-[var(--surface-alt)]">
               <div className="flex justify-center mb-6">
@@ -161,11 +167,11 @@ export default async function Home() {
                 </svg>
               </div>
               <h3 className="text-lg font-semibold text-foreground mb-2">
-                3. Watch the reaction
+                3. Watch, download, share
               </h3>
               <p className="text-[var(--text-muted)] text-sm">
-                They press play, we record their face and voice. When done, the
-                reaction video is ready to watch.
+                They press play, we record the video and their face. After that,
+                you&apos;ll be able to download the combined videos.
               </p>
             </div>
           </ScrollReveal>
@@ -295,7 +301,7 @@ export default async function Home() {
                 ))}
               </ul>
               <Link
-                href="/auth/signin"
+                href={createHref}
                 className="block w-full text-center bg-[var(--surface-card)] text-foreground py-3 rounded-xl font-medium hover:bg-[var(--surface-alt)] transition-colors"
               >
                 Get Started
@@ -364,13 +370,7 @@ export default async function Home() {
           <div className="relative w-24 mx-auto mb-6">
             {/* glow ring behind mascot */}
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-36 h-36 bg-brand/25 rounded-full blur-2xl" />
-            <Image
-              src="/assets/mascotjoy.svg"
-              alt="Celebrating mascot"
-              width={96}
-              height={96}
-              className="relative mascot-joy"
-            />
+            <MascotJoyAnimated className="relative w-24 h-24" />
             {/* sparkle top-right */}
             <svg className="absolute -top-3 -right-7 w-7 h-7 sparkle-a" viewBox="0 0 28 28" fill="none" aria-hidden="true">
               <path d="M14 1 L16 12 L14 27 L12 12Z M1 14 L12 16 L27 14 L12 12Z" fill="#2EE6A6" />
@@ -379,7 +379,7 @@ export default async function Home() {
             <svg className="absolute -top-1 -left-8 w-5 h-5 sparkle-b" viewBox="0 0 28 28" fill="none" aria-hidden="true">
               <path d="M14 1 L16 12 L14 27 L12 12Z M1 14 L12 16 L27 14 L12 12Z" fill="#2EE6A6" />
             </svg>
-            {/* sparkle bottom-right — brand green in both modes */}
+            {/* sparkle bottom-right */}
             <svg className="absolute -bottom-2 -right-3 w-4 h-4 sparkle-c" viewBox="0 0 28 28" fill="none" aria-hidden="true">
               <path d="M14 1 L16 12 L14 27 L12 12Z M1 14 L12 16 L27 14 L12 12Z" fill="#2EE6A6" fillOpacity="0.5" />
             </svg>
@@ -391,7 +391,7 @@ export default async function Home() {
             Now you can. Create your first reaction in under a minute.
           </p>
           <Link
-            href="/auth/signin"
+            href={createHref}
             className="inline-block bg-brand text-soft-black px-8 py-3.5 rounded-xl font-medium hover:bg-brand-600 transition-colors text-lg"
           >
             Create a Reaction
