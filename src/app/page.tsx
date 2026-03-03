@@ -2,10 +2,6 @@ import Link from "next/link";
 import Image from "next/image";
 import AnimatedLogo from "@/components/AnimatedLogo";
 import HeroBackground from "@/components/HeroBackground";
-import IllustrationHero from "@/components/illustrations/IllustrationHero";
-import IllustrationStepLink from "@/components/illustrations/IllustrationStepLink";
-import IllustrationStepRecord from "@/components/illustrations/IllustrationStepRecord";
-import IllustrationStepWatch from "@/components/illustrations/IllustrationStepWatch";
 import ScrollReveal from "@/components/ScrollReveal";
 import { isMaintenanceMode } from "@/lib/maintenance";
 
@@ -71,13 +67,6 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* ── Hero illustration ── */}
-      <section className="bg-brand-50/40 dark:bg-brand-700/10 border-b border-brand-100/60 dark:border-brand-700/20">
-        <div className="max-w-4xl mx-auto px-6 py-10">
-          <IllustrationHero className="w-full h-auto drop-shadow-sm" />
-        </div>
-      </section>
-
       {/* ── How It Works ── */}
       <section
         id="how-it-works"
@@ -97,11 +86,23 @@ export default async function Home() {
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {/* Step 1 */}
+          {/* Step 1 — paste a link */}
           <ScrollReveal delay={0}>
-            <div className="text-center card-lift">
-              <div className="bg-brand-50/70 dark:bg-brand-700/15 rounded-2xl overflow-hidden mb-5 mx-auto max-w-[260px]">
-                <IllustrationStepLink className="w-full h-auto" />
+            <div className="text-center card-lift rounded-2xl p-8 bg-[var(--surface-alt)]">
+              <div className="flex justify-center mb-6">
+                <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+                  <rect width="64" height="64" rx="16" fill="#E8FDF5" />
+                  {/* chain link left */}
+                  <rect x="10" y="25" width="20" height="14" rx="7" fill="none" stroke="#2EE6A6" strokeWidth="2.5" />
+                  {/* chain link right */}
+                  <rect x="34" y="25" width="20" height="14" rx="7" fill="none" stroke="#2EE6A6" strokeWidth="2.5" />
+                  {/* overlap cover */}
+                  <rect x="26" y="29" width="12" height="6" fill="#E8FDF5" />
+                  {/* center connector */}
+                  <line x1="28" y1="32" x2="36" y2="32" stroke="#2EE6A6" strokeWidth="2.5" strokeLinecap="round" />
+                  {/* sparkle */}
+                  <path d="M48 12 L49.5 7 L51 12 L56 13.5 L51 15 L49.5 20 L48 15 L43 13.5Z" fill="#2EE6A6" fillOpacity="0.7" />
+                </svg>
               </div>
               <h3 className="text-lg font-semibold text-foreground mb-2">
                 1. Paste a YouTube link
@@ -113,11 +114,20 @@ export default async function Home() {
             </div>
           </ScrollReveal>
 
-          {/* Step 2 */}
+          {/* Step 2 — share the link */}
           <ScrollReveal delay={150}>
-            <div className="text-center card-lift">
-              <div className="bg-brand-50/70 dark:bg-brand-700/15 rounded-2xl overflow-hidden mb-5 mx-auto max-w-[260px]">
-                <IllustrationStepRecord className="w-full h-auto" />
+            <div className="text-center card-lift rounded-2xl p-8 bg-[var(--surface-alt)]">
+              <div className="flex justify-center mb-6">
+                <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+                  <rect width="64" height="64" rx="16" fill="#E8FDF5" />
+                  {/* paper plane body */}
+                  <path d="M12 32 L52 14 L40 52 L30 38 Z" fill="#2EE6A6" />
+                  {/* fold line */}
+                  <path d="M30 38 L52 14" stroke="#20c98d" strokeWidth="1.5" fill="none" />
+                  {/* dot trail */}
+                  <circle cx="24" cy="43" r="2"   fill="#2EE6A6" fillOpacity="0.45" />
+                  <circle cx="18" cy="48" r="1.5" fill="#2EE6A6" fillOpacity="0.28" />
+                </svg>
               </div>
               <h3 className="text-lg font-semibold text-foreground mb-2">
                 2. Share the link
@@ -129,11 +139,26 @@ export default async function Home() {
             </div>
           </ScrollReveal>
 
-          {/* Step 3 */}
+          {/* Step 3 — watch the reaction */}
           <ScrollReveal delay={300}>
-            <div className="text-center card-lift">
-              <div className="bg-brand-50/70 dark:bg-brand-700/15 rounded-2xl overflow-hidden mb-5 mx-auto max-w-[260px]">
-                <IllustrationStepWatch className="w-full h-auto" />
+            <div className="text-center card-lift rounded-2xl p-8 bg-[var(--surface-alt)]">
+              <div className="flex justify-center mb-6">
+                <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+                  <rect width="64" height="64" rx="16" fill="#E8FDF5" />
+                  {/* monitor frame */}
+                  <rect x="8"  y="14" width="48" height="30" rx="5" fill="#121212" />
+                  <rect x="12" y="18" width="40" height="22" rx="3" fill="#F7F9F8" />
+                  {/* split screen divider */}
+                  <rect x="31" y="18" width="1.5" height="22" fill="#EAEAEA" />
+                  {/* play triangle — left panel */}
+                  <polygon points="19,25 19,35 28,30" fill="#2EE6A6" />
+                  {/* reaction face — right panel */}
+                  <circle cx="39" cy="27" r="5" fill="#FFD4AF" />
+                  <path d="M36 30 Q39 34 42 30" stroke="#121212" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+                  {/* stand */}
+                  <rect x="28" y="44" width="8"  height="5"  rx="1.5" fill="#121212" />
+                  <rect x="23" y="49" width="18" height="4"  rx="2"   fill="#121212" />
+                </svg>
               </div>
               <h3 className="text-lg font-semibold text-foreground mb-2">
                 3. Watch the reaction

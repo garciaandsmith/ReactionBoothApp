@@ -98,6 +98,39 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 
+/* ── Header nav CTA shimmer ── */
+
+@keyframes cta-shimmer {
+  from { transform: translateX(-150%) skewX(-12deg); }
+  to   { transform: translateX(250%)  skewX(-12deg); }
+}
+
+.nav-cta {
+  position: relative;
+  overflow: hidden;
+  transition: background-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+.nav-cta:hover {
+  transform: scale(1.03);
+  box-shadow: 0 0 0 3px rgba(46, 230, 166, 0.25);
+}
+.nav-cta::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent      0%,
+    rgba(255,255,255,0.45) 50%,
+    transparent      100%
+  );
+  transform: translateX(-150%) skewX(-12deg);
+}
+.nav-cta:hover::after {
+  animation: cta-shimmer 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+
 /* ── Illustration decoration animations ── */
 
 /* sparkle: twinkle in / out — three stagger variants */
