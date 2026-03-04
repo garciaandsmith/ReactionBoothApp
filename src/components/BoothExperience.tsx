@@ -3,9 +3,9 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import Image from "next/image";
 import { upload } from "@vercel/blob/client";
+import { useSession } from "next-auth/react";
 import DualRecorder from "./DualRecorder";
-import YouTubePlayer from "./YouTubePlayer";
-import IllustrationBoothDone from "./illustrations/IllustrationBoothDone";
+import YouTubePlayer, { YouTubePlayerHandle } from "./YouTubePlayer";
 import type { ReactionEventLog } from "@/lib/types";
 
 interface Reaction {
@@ -29,6 +29,7 @@ function formatTime(seconds: number) {
 }
 
 export default function BoothExperience({ reaction }: { reaction: Reaction }) {
+  const { data: session } = useSession();
   const [step, setStep] = useState<BoothStep>("welcome");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState("");
@@ -40,7 +41,12 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
   const [reRecordCount, setReRecordCount] = useState(0);
   const [showingPreview, setShowingPreview] = useState(false);
   const [showReRecordWarning, setShowReRecordWarning] = useState(false);
+  // Preview playback state
+  const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [previewYoutubeReady, setPreviewYoutubeReady] = useState(false);
+  const previewYoutubeRef = useRef<YouTubePlayerHandle>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
+  const previewVideoMobileRef = useRef<HTMLVideoElement>(null);
 
   // Clean up object URL when leaving review or unmounting
   useEffect(() => {
@@ -115,9 +121,26 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
     setReRecordCount((c: number) => c + 1);
     setShowReRecordWarning(false);
     setShowingPreview(false);
+    setPreviewPlaying(false);
+    setPreviewYoutubeReady(false);
     setPendingBlob(null);
     setPendingEvents(null);
     setStep("recording");
+  }, []);
+
+  // Start the synced preview playback
+  const handlePlayPreview = useCallback(() => {
+    previewYoutubeRef.current?.seekTo(0);
+    previewYoutubeRef.current?.play();
+    if (previewVideoRef.current) {
+      previewVideoRef.current.currentTime = 0;
+      previewVideoRef.current.play().catch(() => {});
+    }
+    if (previewVideoMobileRef.current) {
+      previewVideoMobileRef.current.currentTime = 0;
+      previewVideoMobileRef.current.play().catch(() => {});
+    }
+    setPreviewPlaying(true);
   }, []);
 
   // ── Welcome ──
@@ -251,7 +274,7 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
       return (
         <div className="max-w-4xl mx-auto px-4 py-8">
           <button
-            onClick={() => setShowingPreview(false)}
+            onClick={() => { setShowingPreview(false); setPreviewPlaying(false); setPreviewYoutubeReady(false); }}
             className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors mb-4"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -267,27 +290,57 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
             {/* YouTube + PIP container (desktop) */}
             <div className="relative rounded-2xl overflow-hidden bg-black" style={{ aspectRatio: "16/9" }}>
               <YouTubePlayer
+                ref={previewYoutubeRef}
                 videoUrl={reaction.videoUrl}
                 controlledMode={false}
+                onReady={() => setPreviewYoutubeReady(true)}
                 className="absolute inset-0 w-full h-full"
               />
-              {/* Webcam PIP — desktop only */}
+
+              {/* Webcam PIP — desktop only, no controls (too small) */}
               {previewUrl && (
                 <video
                   ref={previewVideoRef}
                   src={previewUrl}
-                  controls
-                  className="hidden sm:block absolute bottom-3 right-3 rounded-xl shadow-xl border border-white/20 z-10"
+                  muted={false}
+                  playsInline
+                  className="hidden sm:block absolute bottom-3 right-3 rounded-xl shadow-xl border border-white/20 z-10 pointer-events-none"
                   style={{ width: 176, aspectRatio: "16/9" }}
                 />
               )}
+
+              {/* Play overlay — blocks YouTube direct interaction and shows the play button */}
+              {!previewPlaying && (
+                <div className="absolute inset-0 z-20 bg-black/50 flex flex-col items-center justify-center gap-3">
+                  {previewYoutubeReady ? (
+                    <button
+                      onClick={handlePlayPreview}
+                      className="flex items-center gap-3 bg-white hover:bg-gray-50 text-gray-900 pl-5 pr-7 py-4 rounded-2xl font-semibold text-lg shadow-2xl transition-transform hover:scale-105 active:scale-100"
+                    >
+                      <span className="w-12 h-12 bg-brand rounded-full flex items-center justify-center flex-shrink-0">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="#121212" className="ml-1">
+                          <polygon points="5 3 19 12 5 21 5 3" />
+                        </svg>
+                      </span>
+                      Play preview
+                    </button>
+                  ) : (
+                    <div className="w-10 h-10 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  )}
+                  <p className="text-white/60 text-sm">
+                    Both videos will start together
+                  </p>
+                </div>
+              )}
             </div>
 
-            {/* Webcam stacked — mobile only */}
+            {/* Webcam stacked — mobile only, with controls */}
             {previewUrl && (
               <video
+                ref={previewVideoMobileRef}
                 src={previewUrl}
                 controls
+                playsInline
                 className="sm:hidden w-full rounded-2xl bg-black"
                 style={{ aspectRatio: "16/9" }}
               />
@@ -295,8 +348,8 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
           </div>
 
           <p className="text-xs text-gray-400 mt-3 text-center">
-            The preview shows the YouTube video and your reaction side by side. The final composite
-            is generated after submission.
+            Your webcam reaction plays alongside the YouTube video. The final composite is
+            generated after you submit.
           </p>
 
           {/* Actions in preview mode */}
@@ -506,14 +559,44 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
   }
 
   // ── Done ──
+  const createBoothHref = session?.user ? "/dashboard" : "/auth/signin";
   return (
-    <div className="max-w-md mx-auto text-center py-12 px-4">
-      <IllustrationBoothDone className="w-full max-w-xs mx-auto mb-4 pop-in" />
-      <h1 className="text-2xl font-bold text-gray-900 mb-3">Reaction recorded!</h1>
-      <p className="text-gray-500 mb-8">
-        Your reaction has been saved! The person who sent you this link can now watch it.
+    <div className="max-w-md mx-auto text-center py-16 px-4">
+      {/* Animated checkmark */}
+      <div className="w-20 h-20 bg-brand-100 rounded-full flex items-center justify-center mx-auto mb-6">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#2EE6A6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      </div>
+
+      <h1 className="text-2xl font-bold text-gray-900 mb-3">Reaction submitted!</h1>
+      <p className="text-gray-500 mb-10">
+        Your reaction has been saved.{" "}
+        {reaction.requesterName ? `${reaction.requesterName} can` : "The person who sent this link can"}{" "}
+        now watch it.
       </p>
-      <a href="/" className="text-brand font-medium hover:text-brand-600 transition-colors">
+
+      {/* CTA */}
+      <div className="bg-gray-50 rounded-2xl p-6 mb-6">
+        <p className="text-sm text-gray-500 mb-4">
+          Want to capture someone else&apos;s reaction to a video you love?
+        </p>
+        <a
+          href={createBoothHref}
+          className="inline-flex items-center gap-2 bg-brand text-soft-black px-6 py-3 rounded-xl font-semibold hover:bg-brand-600 transition-colors"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          Create a Reaction Booth
+        </a>
+        {!session?.user && (
+          <p className="text-xs text-gray-400 mt-3">Free to sign up — no credit card required</p>
+        )}
+      </div>
+
+      <a href="/" className="text-sm text-gray-400 hover:text-gray-600 transition-colors">
         Back to ReactionBooth
       </a>
     </div>
