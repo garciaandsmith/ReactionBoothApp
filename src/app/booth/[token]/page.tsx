@@ -96,6 +96,8 @@ export default async function BoothPage({ params }: BoothPageProps) {
       reaction={{
         id: reaction.id,
         videoUrl: reaction.videoUrl,
+        requesterName: reaction.requesterName,
+        recipientName: reaction.recipientName,
         introMessage: reaction.introMessage,
         maxVideoLength: reaction.maxVideoLength,
         watermarked: reaction.watermarked,

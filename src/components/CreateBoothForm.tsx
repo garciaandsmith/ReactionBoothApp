@@ -9,6 +9,8 @@ interface CreateBoothFormProps {
 
 export default function CreateBoothForm({ onCreated }: CreateBoothFormProps) {
   const [videoUrl, setVideoUrl] = useState("");
+  const [requesterName, setRequesterName] = useState("");
+  const [recipientName, setRecipientName] = useState("");
   const [introMessage, setIntroMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ boothUrl: string } | null>(null);
@@ -31,6 +33,8 @@ export default function CreateBoothForm({ onCreated }: CreateBoothFormProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           videoUrl,
+          requesterName: requesterName || undefined,
+          recipientName: recipientName || undefined,
           introMessage: introMessage || undefined,
         }),
       });
@@ -61,8 +65,14 @@ export default function CreateBoothForm({ onCreated }: CreateBoothFormProps) {
   const resetForm = () => {
     setResult(null);
     setVideoUrl("");
+    setRequesterName("");
+    setRecipientName("");
     setIntroMessage("");
   };
+
+  const previewRecipient = recipientName.trim() || "them";
+  const previewRequester = requesterName.trim() || "Someone";
+  const previewMessage = introMessage.trim() || "Watch this and tell me what you think!";
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5">
@@ -115,6 +125,47 @@ export default function CreateBoothForm({ onCreated }: CreateBoothFormProps) {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label
+              htmlFor="requesterName"
+              className="block text-sm font-medium text-gray-700 mb-1.5"
+            >
+              Your name{" "}
+              <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <input
+              id="requesterName"
+              type="text"
+              placeholder="e.g. Alex"
+              value={requesterName}
+              onChange={(e) => setRequesterName(e.target.value)}
+              maxLength={100}
+              disabled={!!result}
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-brand focus:ring-2 focus:ring-brand-100 outline-none transition-all text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="recipientName"
+              className="block text-sm font-medium text-gray-700 mb-1.5"
+            >
+              Recipient&apos;s name{" "}
+              <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <input
+              id="recipientName"
+              type="text"
+              placeholder="e.g. Jordan"
+              value={recipientName}
+              onChange={(e) => setRecipientName(e.target.value)}
+              maxLength={100}
+              disabled={!!result}
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-brand focus:ring-2 focus:ring-brand-100 outline-none transition-all text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+          </div>
+        </div>
+
         <div>
           <label
             htmlFor="videoUrl"
@@ -162,6 +213,24 @@ export default function CreateBoothForm({ onCreated }: CreateBoothFormProps) {
             disabled={!!result}
             className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-brand focus:ring-2 focus:ring-brand-100 outline-none transition-all resize-none text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
           />
+        </div>
+
+        {/* Live preview */}
+        <div className="rounded-xl border border-gray-200 overflow-hidden">
+          <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              Recipient preview
+            </p>
+          </div>
+          <div className="px-4 py-4 bg-white">
+            <p className="text-sm text-gray-700">
+              <span className="font-medium">
+                Hey {previewRecipient},
+              </span>{" "}
+              {previewRequester} has a message for you:{" "}
+              <span className="italic text-gray-500">&ldquo;{previewMessage}&rdquo;</span>
+            </p>
+          </div>
         </div>
 
         {error && (
