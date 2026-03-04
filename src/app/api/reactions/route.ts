@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { videoUrl, introMessage } = body;
+    const { videoUrl, introMessage, requesterName, recipientName } = body;
 
     if (!videoUrl) {
       return NextResponse.json(
@@ -75,6 +75,8 @@ export async function POST(request: NextRequest) {
         senderEmail,
         recipientEmail: "",
         senderId: user?.id || null,
+        requesterName: requesterName || null,
+        recipientName: recipientName || null,
         introMessage: introMessage || null,
         watermarked: planConfig.watermark,
         maxVideoLength: planConfig.maxVideoLength,

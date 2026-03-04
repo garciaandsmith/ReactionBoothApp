@@ -91,6 +91,8 @@ model Reaction {
   recipientEmail  String
   senderId        String?
   recipientId     String?
+  requesterName   String?  // Name of the person sending the booth link
+  recipientName   String?  // Name of the person receiving the booth link
   introMessage    String?  // Custom message shown before recording
   status          String   @default("pending") // pending | opened | recording | completed | expired
   boothToken      String   @unique @default(cuid()) // unique link token

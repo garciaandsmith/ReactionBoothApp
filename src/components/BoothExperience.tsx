@@ -10,6 +10,8 @@ import type { ReactionEventLog } from "@/lib/types";
 interface Reaction {
   id: string;
   videoUrl: string;
+  requesterName: string | null;
+  recipientName: string | null;
   introMessage: string | null;
   maxVideoLength: number;
   watermarked: boolean;
@@ -96,10 +98,14 @@ export default function BoothExperience({ reaction }: { reaction: Reaction }) {
         </div>
 
         <h1 className="text-2xl font-bold text-gray-900 mb-3">
-          You&apos;ve been invited to a Reaction Booth!
+          {reaction.recipientName
+            ? `Hey ${reaction.recipientName}!`
+            : "You've been invited to a Reaction Booth!"}
         </h1>
         <p className="text-gray-500 mb-4">
-          Someone wants to see your reaction to a video.
+          {reaction.requesterName
+            ? `${reaction.requesterName} wants to see your reaction to a video.`
+            : "Someone wants to see your reaction to a video."}
         </p>
         {reaction.introMessage && (
           <div className="bg-brand-50 rounded-xl p-4 mb-6 text-left">
