@@ -13,12 +13,17 @@ interface DualRecorderProps {
   onError: (error: string) => void;
 }
 
+type RecordingPhase = "idle" | "countdown" | "recording" | "post_video" | "extended";
+
 const STATE_MAP: Record<number, YouTubeEvent["type"] | null> = {
   0: "ended",
   1: "play",
   2: "pause",
   3: "buffering",
 };
+
+const COUNTDOWN_SECONDS = 5;
+const POST_VIDEO_SECONDS = 10;
 
 function formatTime(seconds: number) {
   const m = Math.floor(seconds / 60);
@@ -40,18 +45,30 @@ export default function DualRecorder({
   const eventsRef = useRef<YouTubeEvent[]>([]);
   const recordingStartRef = useRef<number>(0);
   const pendingEventLogRef = useRef<ReactionEventLog | null>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const mainTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const postVideoTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isRecordingRef = useRef(false);
-  // Stable ref so handleYouTubeStateChange can call stopDualRecording
-  // without a forward-reference issue or stale closure.
-  const stopDualRecordingRef = useRef<() => void>(() => {});
+  const phaseRef = useRef<RecordingPhase>("idle");
+
+  // Stable refs updated each render so inner callbacks always see latest versions
+  const doStopRef = useRef<() => void>(() => {});
+  const enterPostVideoRef = useRef<() => void>(() => {});
 
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [youtubeReady, setYoutubeReady] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
+  const [phase, setPhase] = useState<RecordingPhase>("idle");
   const [elapsed, setElapsed] = useState(0);
+  const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
+  const [postVideoRemaining, setPostVideoRemaining] = useState(POST_VIDEO_SECONDS);
 
+  const setPhaseSync = useCallback((p: RecordingPhase) => {
+    phaseRef.current = p;
+    setPhase(p);
+  }, []);
+
+  // ── Permissions ──
   const requestPermissions = useCallback(async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -79,34 +96,81 @@ export default function DualRecorder({
   useEffect(() => {
     return () => {
       if (stream) stream.getTracks().forEach((t) => t.stop());
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (mainTimerRef.current) clearInterval(mainTimerRef.current);
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+      if (postVideoTimerRef.current) clearInterval(postVideoTimerRef.current);
     };
   }, [stream]);
 
-  const handleYouTubeStateChange = useCallback(
-    (state: number, videoTime: number) => {
-      if (!isRecordingRef.current) return;
-      const eventType = STATE_MAP[state];
-      if (!eventType) return;
+  // ── Core stop logic ──
+  const doStop = useCallback(() => {
+    if (postVideoTimerRef.current) {
+      clearInterval(postVideoTimerRef.current);
+      postVideoTimerRef.current = null;
+    }
+    if (mainTimerRef.current) {
+      clearInterval(mainTimerRef.current);
+      mainTimerRef.current = null;
+    }
+    isRecordingRef.current = false;
+    youtubeRef.current?.pause();
+    const durationMs = performance.now() - recordingStartRef.current;
+    pendingEventLogRef.current = {
+      version: 1,
+      videoId: extractYouTubeId(videoUrl) || "",
+      videoUrl,
+      recordingStartedAt: new Date(Date.now() - durationMs).toISOString(),
+      events: [...eventsRef.current],
+      recordingDurationMs: durationMs,
+    };
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+  }, [videoUrl]);
+  doStopRef.current = doStop;
 
-      const now = performance.now();
-      if (eventType === "play" && eventsRef.current.length > 0) {
-        const lastEvent = eventsRef.current[eventsRef.current.length - 1];
-        const timeSinceLastEvent = now - recordingStartRef.current - lastEvent.timestampMs;
-        const expectedVideoTime = lastEvent.videoTimeS + timeSinceLastEvent / 1000;
-        if (Math.abs(videoTime - expectedVideoTime) > 2) {
-          eventsRef.current.push({ type: "seek", timestampMs: now - recordingStartRef.current, videoTimeS: videoTime });
-        }
+  // ── Post-video 10-second window ──
+  const enterPostVideoPhase = useCallback(() => {
+    setPhaseSync("post_video");
+    setPostVideoRemaining(POST_VIDEO_SECONDS);
+    let remaining = POST_VIDEO_SECONDS;
+    postVideoTimerRef.current = setInterval(() => {
+      remaining -= 1;
+      setPostVideoRemaining(remaining);
+      if (remaining <= 0) {
+        clearInterval(postVideoTimerRef.current!);
+        postVideoTimerRef.current = null;
+        doStopRef.current();
       }
+    }, 1000);
+  }, [setPhaseSync]);
+  enterPostVideoRef.current = enterPostVideoPhase;
 
-      eventsRef.current.push({ type: eventType, timestampMs: now - recordingStartRef.current, videoTimeS: videoTime });
+  // ── YouTube state changes ──
+  const handleYouTubeStateChange = useCallback((state: number, videoTime: number) => {
+    if (!isRecordingRef.current) return;
+    const eventType = STATE_MAP[state];
+    if (!eventType) return;
 
-      if (eventType === "ended") stopDualRecordingRef.current();
-    },
-    []
-  );
+    const now = performance.now();
+    if (eventType === "play" && eventsRef.current.length > 0) {
+      const lastEvent = eventsRef.current[eventsRef.current.length - 1];
+      const timeSinceLastEvent = now - recordingStartRef.current - lastEvent.timestampMs;
+      const expectedVideoTime = lastEvent.videoTimeS + timeSinceLastEvent / 1000;
+      if (Math.abs(videoTime - expectedVideoTime) > 2) {
+        eventsRef.current.push({ type: "seek", timestampMs: now - recordingStartRef.current, videoTimeS: videoTime });
+      }
+    }
 
-  const startDualRecording = useCallback(() => {
+    eventsRef.current.push({ type: eventType, timestampMs: now - recordingStartRef.current, videoTimeS: videoTime });
+
+    if (eventType === "ended" && phaseRef.current === "recording") {
+      enterPostVideoRef.current();
+    }
+  }, []);
+
+  // ── Start actual recording (called after countdown) ──
+  const startActualRecording = useCallback(() => {
     if (!stream) return;
     chunksRef.current = [];
     eventsRef.current = [];
@@ -131,46 +195,55 @@ export default function DualRecorder({
     isRecordingRef.current = true;
     youtubeRef.current?.seekTo(0);
     youtubeRef.current?.play();
-
-    setIsRecording(true);
+    setPhaseSync("recording");
     setElapsed(0);
 
-    timerRef.current = setInterval(() => {
+    mainTimerRef.current = setInterval(() => {
       setElapsed((prev) => {
-        if (prev + 1 >= maxDuration) {
-          stopDualRecording();
-          return prev + 1;
+        const next = prev + 1;
+        if (next >= maxDuration) {
+          doStopRef.current();
         }
-        return prev + 1;
+        return next;
       });
     }, 1000);
-  }, [stream, maxDuration, onRecordingComplete]);
+  }, [stream, maxDuration, onRecordingComplete, setPhaseSync]);
 
-  const stopDualRecording = useCallback(() => {
-    isRecordingRef.current = false;
-    youtubeRef.current?.pause();
-    const durationMs = performance.now() - recordingStartRef.current;
-    pendingEventLogRef.current = {
-      version: 1,
-      videoId: extractYouTubeId(videoUrl) || "",
-      videoUrl,
-      recordingStartedAt: new Date(Date.now() - durationMs).toISOString(),
-      events: [...eventsRef.current],
-      recordingDurationMs: durationMs,
-    };
+  // ── Countdown ──
+  const startCountdown = useCallback(() => {
+    setPhaseSync("countdown");
+    setCountdown(COUNTDOWN_SECONDS);
+    let remaining = COUNTDOWN_SECONDS;
 
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      mediaRecorderRef.current.stop();
+    countdownTimerRef.current = setInterval(() => {
+      remaining -= 1;
+      setCountdown(remaining);
+      if (remaining <= 0) {
+        clearInterval(countdownTimerRef.current!);
+        countdownTimerRef.current = null;
+        startActualRecording();
+      }
+    }, 1000);
+  }, [setPhaseSync, startActualRecording]);
+
+  // ── Extend recording (dismiss post-video window) ──
+  const handleExtendRecording = useCallback(() => {
+    if (postVideoTimerRef.current) {
+      clearInterval(postVideoTimerRef.current);
+      postVideoTimerRef.current = null;
     }
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    setIsRecording(false);
-  }, [videoUrl]);
-  // Keep the stable ref current so handleYouTubeStateChange always calls
-  // the latest version without a forward-reference in its dep array.
-  stopDualRecordingRef.current = stopDualRecording;
+    setPhaseSync("extended");
+  }, [setPhaseSync]);
+
+  // ── Manual stop ──
+  const handleStop = useCallback(() => {
+    doStop();
+  }, [doStop]);
+
+  // ── Derived state ──
+  const isActiveRecording = phase === "recording" || phase === "post_video" || phase === "extended";
+  const progressPct = Math.min((elapsed / maxDuration) * 100, 100);
+  const postVideoProgressPct = (postVideoRemaining / POST_VIDEO_SECONDS) * 100;
 
   // ── Permission screen ──
   if (!permissionGranted) {
@@ -196,9 +269,6 @@ export default function DualRecorder({
     );
   }
 
-  const progressPct = Math.min((elapsed / maxDuration) * 100, 100);
-
-  // ── Main UI: YouTube on top (full width), webcam below ──
   return (
     <div className="space-y-3">
 
@@ -214,7 +284,7 @@ export default function DualRecorder({
         />
 
         {/* Recording badge — top left */}
-        {isRecording && (
+        {isActiveRecording && (
           <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-sm z-10 pointer-events-none">
             <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
             <span className="tabular-nums">{formatTime(elapsed)}</span>
@@ -222,28 +292,139 @@ export default function DualRecorder({
           </div>
         )}
 
-        {/* Loading overlay */}
+        {/* YouTube loading overlay */}
         {!youtubeReady && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-20">
             <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
           </div>
         )}
+
+        {/* Pre-recording instruction overlay (idle & countdown) */}
+        {youtubeReady && (phase === "idle" || phase === "countdown") && (
+          <div className="absolute inset-0 bg-black/75 backdrop-blur-sm z-20 flex flex-col items-center justify-center p-6 text-white text-center">
+            {phase === "idle" ? (
+              <>
+                <div className="w-14 h-14 bg-white/10 rounded-full flex items-center justify-center mb-4">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#2EE6A6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M23 7l-7 5 7 5V7z" />
+                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-bold mb-4">Your reaction booth is ready!</h3>
+                <ul className="text-sm text-white/80 space-y-3 max-w-sm text-left">
+                  <li className="flex items-start gap-2.5">
+                    <span className="text-brand flex-shrink-0 mt-0.5 text-base leading-none">①</span>
+                    <span>
+                      Click <strong className="text-white">Start Recording</strong> below — a{" "}
+                      <strong className="text-white">5-second countdown</strong> will appear, then the
+                      video and your webcam will start at the same time.
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2.5">
+                    <span className="text-brand flex-shrink-0 mt-0.5 text-base leading-none">②</span>
+                    <span>
+                      You can <strong className="text-white">pause, rewind, or replay</strong> the video
+                      as much as you like — your reaction keeps recording. It can look even more natural!
+                      {watermarked && (
+                        <span className="text-white/50"> (Free tier: up to {formatTime(maxDuration)} total.)</span>
+                      )}
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2.5">
+                    <span className="text-brand flex-shrink-0 mt-0.5 text-base leading-none">③</span>
+                    <span>
+                      Once the video ends, you get <strong className="text-white">10 extra seconds</strong>{" "}
+                      for final thoughts — or tap <strong className="text-white">Extend Recording</strong> to
+                      keep going{watermarked ? ` (within your ${formatTime(maxDuration)} limit)` : ""}.
+                    </span>
+                  </li>
+                </ul>
+              </>
+            ) : (
+              /* Countdown phase */
+              <div className="flex flex-col items-center gap-3">
+                <p className="text-white/60 text-xs uppercase tracking-widest font-semibold">Get ready…</p>
+                <div
+                  className="text-9xl font-black tabular-nums text-white leading-none"
+                  style={{ textShadow: "0 0 60px rgba(46,230,166,0.6), 0 0 20px rgba(46,230,166,0.4)" }}
+                >
+                  {countdown || "GO!"}
+                </div>
+                <p className="text-white/50 text-sm">Recording starts when it hits zero</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Post-video extend overlay */}
+        {phase === "post_video" && (
+          <div className="absolute inset-0 bg-black/65 backdrop-blur-sm z-20 flex flex-col items-center justify-center gap-5 p-6">
+            <div className="text-white text-center">
+              <p className="text-xl font-bold mb-1">Video ended!</p>
+              <p className="text-sm text-white/70">
+                Recording continues for a few more seconds — say your final thoughts!
+              </p>
+            </div>
+            <div className="flex flex-col items-center gap-3 w-full max-w-xs">
+              {/* Extend button with depleting progress bar inside */}
+              <button
+                onClick={handleExtendRecording}
+                className="relative w-full overflow-hidden bg-brand text-soft-black font-semibold py-3 px-6 rounded-xl transition-colors hover:opacity-90"
+              >
+                {/* Depleting fill — shrinks from right to left over 10 s */}
+                <div
+                  className="absolute inset-0 bg-brand-600/30 origin-left"
+                  style={{
+                    transform: `scaleX(${postVideoProgressPct / 100})`,
+                    transformOrigin: "left center",
+                    transition: "transform 1s linear",
+                  }}
+                />
+                <span className="relative z-10 flex items-center justify-center gap-2">
+                  <span>Extend Recording</span>
+                  <span className="tabular-nums text-sm opacity-60">({postVideoRemaining}s)</span>
+                </span>
+              </button>
+              <button
+                onClick={handleStop}
+                className="text-white/50 hover:text-white/80 text-sm transition-colors"
+              >
+                Stop now
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Progress bar */}
-      {isRecording && (
-        <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-red-500 transition-all duration-1000 ease-linear"
-            style={{ width: `${progressPct}%` }}
-          />
+      {/* Progress bar — time used vs plan limit */}
+      {isActiveRecording && (
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs text-gray-400">
+            <span>
+              {phase === "post_video"
+                ? "Extra time"
+                : phase === "extended"
+                ? "Extended recording"
+                : "Recording progress"}
+            </span>
+            <span className="tabular-nums">{formatTime(elapsed)} / {formatTime(maxDuration)}</span>
+          </div>
+          <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-red-500 transition-all duration-1000 ease-linear"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
         </div>
       )}
 
       {/* Webcam preview + controls row */}
       <div className="flex items-center gap-4">
         {/* Webcam — fixed-size preview */}
-        <div className="relative rounded-xl overflow-hidden bg-gray-900 flex-shrink-0" style={{ width: 180, aspectRatio: "16/9" }}>
+        <div
+          className="relative rounded-xl overflow-hidden bg-gray-900 flex-shrink-0"
+          style={{ width: 180, aspectRatio: "16/9" }}
+        >
           <video
             ref={webcamRef}
             autoPlay
@@ -252,23 +433,47 @@ export default function DualRecorder({
             className="w-full h-full object-cover"
             style={{ transform: "scaleX(-1)" }}
           />
-          <div className="absolute bottom-1 left-2 text-white/60 text-[10px] font-medium pointer-events-none">You</div>
+          <div className="absolute bottom-1 left-2 text-white/60 text-[10px] font-medium pointer-events-none">
+            You
+          </div>
         </div>
 
         {/* Controls */}
         <div className="flex-1 flex flex-col gap-2">
-          {!isRecording ? (
+          {phase === "idle" && (
             <button
-              onClick={startDualRecording}
+              onClick={startCountdown}
               disabled={!youtubeReady}
               className="flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl font-semibold transition-colors w-full"
             >
               <span className="w-3 h-3 bg-white rounded-full flex-shrink-0" />
               {youtubeReady ? "Start Recording" : "Loading video…"}
             </button>
-          ) : (
+          )}
+
+          {phase === "countdown" && (
             <button
-              onClick={stopDualRecording}
+              disabled
+              className="flex items-center justify-center gap-2 bg-red-400 text-white px-6 py-3 rounded-xl font-semibold w-full opacity-80 cursor-not-allowed"
+            >
+              <span className="w-3 h-3 bg-white/60 rounded-full flex-shrink-0 animate-pulse" />
+              Starting in {countdown}…
+            </button>
+          )}
+
+          {(phase === "recording" || phase === "extended") && (
+            <button
+              onClick={handleStop}
+              className="flex items-center justify-center gap-2 bg-gray-900 hover:bg-gray-700 text-white px-6 py-3 rounded-xl font-medium transition-colors w-full"
+            >
+              <span className="w-3 h-3 bg-red-500 rounded-sm flex-shrink-0" />
+              Stop Recording
+            </button>
+          )}
+
+          {phase === "post_video" && (
+            <button
+              onClick={handleStop}
               className="flex items-center justify-center gap-2 bg-gray-900 hover:bg-gray-700 text-white px-6 py-3 rounded-xl font-medium transition-colors w-full"
             >
               <span className="w-3 h-3 bg-red-500 rounded-sm flex-shrink-0" />
