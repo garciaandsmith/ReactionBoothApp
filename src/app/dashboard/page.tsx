@@ -15,18 +15,49 @@ interface Reaction {
   status: string;
   boothToken: string;
   createdAt: string;
+  openedAt: string | null;
   completedAt: string | null;
-  recordingUrl: string | null;
+  downloadCount: number;
   watermarked: boolean;
+  recordingUrl: string | null;
 }
 
 type Tab = "booths" | "create";
+type ViewMode = "mosaic" | "list";
+
+function ChevronIcon({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`transition-transform duration-200 flex-shrink-0 ${collapsed ? "-rotate-90" : ""}`}
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+const SECTION_GROUPS = [
+  { key: "completed", label: "Completed", statuses: ["completed"] },
+  { key: "awaiting", label: "Awaiting Response", statuses: ["pending"] },
+  { key: "opened", label: "Opened", statuses: ["opened"] },
+  { key: "recording", label: "Recording in Progress", statuses: ["recording"] },
+  { key: "expired", label: "Expired", statuses: ["expired"] },
+];
 
 export default function DashboardPage() {
   const { data: session, status: authStatus } = useSession();
   const [reactions, setReactions] = useState<Reaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("booths");
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<ViewMode>("mosaic");
 
   const fetchReactions = useCallback(async () => {
     try {
@@ -50,6 +81,15 @@ export default function DashboardPage() {
     fetchReactions();
     setActiveTab("booths");
   }, [fetchReactions]);
+
+  const toggleSection = (key: string) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   if (authStatus === "loading") {
     return (
@@ -182,28 +222,64 @@ export default function DashboardPage() {
               </div>
             ) : (
               <>
-                {/* Group by status */}
-                {["completed", "pending", "opened", "recording", "expired"].map((status) => {
-                  const group = reactions.filter((r) => r.status === status);
+                {/* View mode toggle */}
+                <div className="flex justify-end mb-5">
+                  <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+                    <button
+                      onClick={() => setViewMode("mosaic")}
+                      title="Mosaic view"
+                      className={`p-1.5 rounded-md transition-all ${
+                        viewMode === "mosaic" ? "bg-white shadow-sm text-gray-900" : "text-gray-400 hover:text-gray-600"
+                      }`}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => setViewMode("list")}
+                      title="List view"
+                      className={`p-1.5 rounded-md transition-all ${
+                        viewMode === "list" ? "bg-white shadow-sm text-gray-900" : "text-gray-400 hover:text-gray-600"
+                      }`}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sections */}
+                {SECTION_GROUPS.map(({ key, label, statuses }) => {
+                  const group = reactions.filter((r) => statuses.includes(r.status));
                   if (group.length === 0) return null;
-                  const labels: Record<string, string> = {
-                    completed: "Completed",
-                    pending: "Awaiting Response",
-                    opened: "Opened",
-                    recording: "Recording in Progress",
-                    expired: "Expired",
-                  };
+                  const collapsed = collapsedSections.has(key);
                   return (
-                    <div key={status} className="mb-8">
-                      <div className="flex items-center gap-2 mb-3">
-                        <h2 className="text-sm font-semibold text-gray-700">{labels[status]}</h2>
-                        <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{group.length}</span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {group.map((reaction) => (
-                          <BoothCard key={reaction.id} reaction={reaction} />
-                        ))}
-                      </div>
+                    <div key={key} className="mb-6">
+                      <button
+                        onClick={() => toggleSection(key)}
+                        className="flex items-center gap-2 mb-3 w-full text-left group"
+                      >
+                        <ChevronIcon collapsed={collapsed} />
+                        <h2 className="text-sm font-semibold text-gray-700 group-hover:text-gray-900 transition-colors">
+                          {label}
+                        </h2>
+                        <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+                          {group.length}
+                        </span>
+                      </button>
+                      {!collapsed && (
+                        <div className={
+                          viewMode === "mosaic"
+                            ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+                            : "flex flex-col gap-2"
+                        }>
+                          {group.map((reaction) => (
+                            <BoothCard key={reaction.id} reaction={reaction} viewMode={viewMode} />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
