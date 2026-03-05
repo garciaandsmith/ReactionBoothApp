@@ -35,6 +35,8 @@ interface ComposeOptions {
   volume?: ComposeVolumeSettings;
   /** Netscape-format cookie content from the admin DB setting. */
   cookiesContent?: string;
+  /** Append a 3-second off-white closing slide (for free-tier users). */
+  closingSlide?: boolean;
 }
 
 interface TimelineSegment {
@@ -46,6 +48,12 @@ interface TimelineSegment {
 }
 
 const BRAND_HEX = "0x2EE6A6"; // ffmpeg pad-filter format (no #)
+
+// New PIP layout pixel values for 1920×1080 canvas:
+//   Main video : 1750×977  at  (85, 75)
+//   PIP video  :  550×310  flush to canvas corner
+const PIP_MAIN = { x: 85, y: 75, w: 1750, h: 977 };
+const PIP_SMALL = { w: 550, h: 310 };
 
 export async function downloadYouTube(
   videoUrl: string,
@@ -113,7 +121,8 @@ function buildFilterGraph(
   segments: TimelineSegment[],
   layout: WatchLayout,
   totalDurationS: number,
-  volume: ComposeVolumeSettings
+  volume: ComposeVolumeSettings,
+  closingSlide: boolean
 ): string {
   const filters: string[] = [];
   const segLabels: string[] = [];
@@ -166,24 +175,39 @@ function buildFilterGraph(
   filters.push(`[yt_audio][wc_audio]amix=inputs=2:duration=shortest:dropout_transition=2[outa]`);
 
   // Video compositing — brand color canvas + precise overlay placement
-  const isPip = layout.startsWith("pip-");
   const dur = totalDurationS.toFixed(3);
-  if (isPip) {
-    filters.push(`[ytv]scale=1485:835:force_original_aspect_ratio=increase,crop=1485:835[yt_s]`);
-    filters.push(`[1:v]scale=674:380:force_original_aspect_ratio=increase,crop=674:380[wc_s]`);
-    filters.push(`color=c=${BRAND_HEX}:s=1920x1080:d=${dur}[canvas]`);
-    filters.push(`[canvas][yt_s]overlay=65:65[with_yt]`);
 
-    let wcX: string;
-    let wcY: string;
+  if (layout.startsWith("pip-") && layout !== "pip-cam-bottom-right") {
+    // Standard PIP: YT is large main, webcam is small PIP
+    const { x: mx, y: my, w: mw, h: mh } = PIP_MAIN;
+    const { w: pw, h: ph } = PIP_SMALL;
+    filters.push(`[ytv]scale=${mw}:${mh}:force_original_aspect_ratio=increase,crop=${mw}:${mh}[yt_s]`);
+    filters.push(`[1:v]scale=${pw}:${ph}:force_original_aspect_ratio=increase,crop=${pw}:${ph}[wc_s]`);
+    filters.push(`color=c=${BRAND_HEX}:s=1920x1080:d=${dur}[canvas]`);
+    filters.push(`[canvas][yt_s]overlay=${mx}:${my}[with_yt]`);
+
+    // PIP position (webcam): flush to canvas corner
+    const CW = 1920, CH = 1080;
+    let wcX: number, wcY: number;
     switch (layout) {
-      case "pip-bottom-right": wcX = "1181"; wcY = "635"; break;
-      case "pip-bottom-left":  wcX = "65";   wcY = "635"; break;
-      case "pip-top-right":    wcX = "1181"; wcY = "65";  break;
-      case "pip-top-left":     wcX = "65";   wcY = "65";  break;
-      default:                 wcX = "1181"; wcY = "635";
+      case "pip-bottom-right": wcX = CW - pw;  wcY = CH - ph;  break;
+      case "pip-bottom-left":  wcX = 0;         wcY = CH - ph;  break;
+      case "pip-top-right":    wcX = CW - pw;  wcY = 0;         break;
+      case "pip-top-left":     wcX = 0;         wcY = 0;         break;
+      default:                 wcX = CW - pw;  wcY = CH - ph;
     }
     filters.push(`[with_yt][wc_s]overlay=${wcX}:${wcY}[outv]`);
+
+  } else if (layout === "pip-cam-bottom-right") {
+    // Inverted PIP: webcam is large main, YT is small PIP (bottom-right)
+    const { x: mx, y: my, w: mw, h: mh } = PIP_MAIN;
+    const { w: pw, h: ph } = PIP_SMALL;
+    const CW = 1920, CH = 1080;
+    filters.push(`[1:v]scale=${mw}:${mh}:force_original_aspect_ratio=increase,crop=${mw}:${mh}[wc_s]`);
+    filters.push(`[ytv]scale=${pw}:${ph}:force_original_aspect_ratio=increase,crop=${pw}:${ph}[yt_s]`);
+    filters.push(`color=c=${BRAND_HEX}:s=1920x1080:d=${dur}[canvas]`);
+    filters.push(`[canvas][wc_s]overlay=${mx}:${my}[with_wc]`);
+    filters.push(`[with_wc][yt_s]overlay=${CW - pw}:${CH - ph}[outv]`);
 
   } else if (layout === "side-by-side") {
     filters.push(`[ytv]scale=930:540:force_original_aspect_ratio=increase,crop=930:540[yt_s]`);
@@ -193,12 +217,23 @@ function buildFilterGraph(
     filters.push(`[with_yt][wc_s]overlay=990:270[outv]`);
 
   } else {
-    // stacked
+    // stacked (portrait 1080×1920)
     filters.push(`[ytv]scale=1080:920:force_original_aspect_ratio=increase,crop=1080:920[yt_s]`);
     filters.push(`[1:v]scale=1080:920:force_original_aspect_ratio=increase,crop=1080:920[wc_s]`);
     filters.push(`color=c=${BRAND_HEX}:s=1080x1920:d=${dur}[canvas]`);
     filters.push(`[canvas][yt_s]overlay=0:0[with_yt]`);
     filters.push(`[with_yt][wc_s]overlay=0:1000[outv]`);
+  }
+
+  // ── Closing slide (3 seconds, off-white background) ───────────────────
+  // Appended after the main reaction content for free-tier users.
+  if (closingSlide) {
+    const isStacked = layout === "stacked";
+    const cSize = isStacked ? "1080x1920" : "1920x1080";
+    filters.push(`color=c=0xF7F9F8:s=${cSize}:d=3.000[closing_v]`);
+    filters.push(`anullsrc=channel_layout=stereo:sample_rate=44100,atrim=duration=3.000[closing_a]`);
+    filters.push(`[outv][closing_v]concat=n=2:v=1:a=0[final_v]`);
+    filters.push(`[outa][closing_a]concat=n=2:v=0:a=1[final_a]`);
   }
 
   return filters.join(";\n");
@@ -212,6 +247,7 @@ export async function composeReaction(options: ComposeOptions): Promise<void> {
     outputPath,
     volume = { youtubeVolume: 100, webcamVolume: 100 },
     cookiesContent,
+    closingSlide = false,
   } = options;
 
   if (!ffmpegPath) throw new Error("ffmpeg-static binary not found");
@@ -222,24 +258,30 @@ export async function composeReaction(options: ComposeOptions): Promise<void> {
   const tempDir = await mkdtemp(join(tmpdir(), "reactionbooth-"));
   const ytPath = join(tempDir, "youtube.mp4");
 
+  // Output label names depend on whether a closing slide was appended
+  const videoMap = closingSlide ? "[final_v]" : "[outv]";
+  const audioMap = closingSlide ? "[final_a]" : "[outa]";
+  // Total encoded duration includes the closing slide
+  const encodeDuration = closingSlide ? totalDurationS + 3 : totalDurationS;
+
   try {
     await downloadYouTube(eventsLog.videoUrl, ytPath, cookiesContent);
-    const filterGraph = buildFilterGraph(segments, layout, totalDurationS, volume);
+    const filterGraph = buildFilterGraph(segments, layout, totalDurationS, volume, closingSlide);
 
     await execFileAsync(ffmpegPath, [
       "-y",
       "-i", ytPath,
       "-i", webcamPath,
       "-filter_complex", filterGraph,
-      "-map", "[outv]",
-      "-map", "[outa]",
+      "-map", videoMap,
+      "-map", audioMap,
       "-c:v", "libx264",
       "-preset", "fast",
       "-crf", "23",
       "-c:a", "aac",
       "-b:a", "128k",
       "-movflags", "+faststart",
-      "-t", totalDurationS.toFixed(3),
+      "-t", encodeDuration.toFixed(3),
       outputPath,
     ], { timeout: 600000 });
   } finally {

@@ -70,6 +70,8 @@ export default async function WatchPage({ params }: WatchPageProps) {
         recordingUrl: reaction.recordingUrl,
         senderEmail: reaction.senderEmail,
         recipientEmail: reaction.recipientEmail,
+        requesterName: reaction.requesterName,
+        recipientName: reaction.recipientName,
         watermarked: reaction.watermarked,
         selectedLayout: reaction.selectedLayout,
         downloadCount: reaction.downloadCount,
