@@ -92,6 +92,22 @@ export default function WatchPlayer({
   const [ytVolume, setYtVolume] = useState(100);
   const [wcVolume, setWcVolume] = useState(100);
 
+  // Watermark: color-swapped SVG blob URL (off-white letters on green bg)
+  const [watermarkSrc, setWatermarkSrc] = useState("/assets/ReactionBoothLogo.svg");
+  useEffect(() => {
+    fetch("/assets/ReactionBoothLogo.svg")
+      .then((r) => r.text())
+      .then((text) => {
+        const swapped = text
+          .replace(/#2ee6a6/gi, "#SWAP_TMP")
+          .replace(/#f7f9f8/gi, "#2ee6a6")
+          .replace(/#SWAP_TMP/gi, "#f7f9f8");
+        const blob = new Blob([swapped], { type: "image/svg+xml" });
+        setWatermarkSrc(URL.createObjectURL(blob));
+      })
+      .catch(() => {});
+  }, []);
+
   // Live volume control
   useEffect(() => {
     youtubeRef.current?.setVolume(Math.min(ytVolume, 100));
@@ -103,13 +119,21 @@ export default function WatchPlayer({
     }
   }, [wcVolume]);
 
-  // Progress ticker — runs continuously; isSeekingRef prevents overwriting slider value
+  // Progress ticker — runs continuously; isSeekingRef prevents overwriting slider value.
+  // Also tracks duration dynamically because WebM streams often report Infinity.
   useEffect(() => {
     const webcam = webcamRef.current;
     if (!webcam) return;
     let raf: number;
     const tick = () => {
       if (!isSeekingRef.current) setCurrentTime(webcam.currentTime);
+      // Grow duration in real-time when the metadata doesn't include a valid value
+      const d = webcam.duration;
+      if (isFinite(d) && d > 0) {
+        setDuration(d);
+      } else {
+        setDuration((prev) => Math.max(prev, webcam.currentTime));
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -169,22 +193,22 @@ export default function WatchPlayer({
     const onPlay  = () => { setIsPlaying(true);  syncYouTubeToWebcam(); startSyncLoop(); };
     const onPause = () => { setIsPlaying(false); youtubeRef.current?.pause(); stopSyncLoop(); };
     const onSeeked = () => syncYouTubeToWebcam();
-    const onEnded  = () => { setIsPlaying(false); youtubeRef.current?.pause(); stopSyncLoop(); };
-    const onLoadedMetadata = () => {
-      const d = webcam.duration;
-      setDuration(isFinite(d) && d > 0 ? d : 0);
+    const onEnded  = () => {
+      setIsPlaying(false);
+      youtubeRef.current?.pause();
+      stopSyncLoop();
+      // currentTime at ended is the definitive total duration
+      setDuration(webcam.currentTime);
     };
     webcam.addEventListener("play",  onPlay);
     webcam.addEventListener("pause", onPause);
     webcam.addEventListener("seeked", onSeeked);
     webcam.addEventListener("ended", onEnded);
-    webcam.addEventListener("loadedmetadata", onLoadedMetadata);
     return () => {
       webcam.removeEventListener("play",  onPlay);
       webcam.removeEventListener("pause", onPause);
       webcam.removeEventListener("seeked", onSeeked);
       webcam.removeEventListener("ended", onEnded);
-      webcam.removeEventListener("loadedmetadata", onLoadedMetadata);
       stopSyncLoop();
     };
   }, [events, syncYouTubeToWebcam, startSyncLoop, stopSyncLoop]);
@@ -195,20 +219,14 @@ export default function WatchPlayer({
     if (!webcam || events) return;
     const onPlay  = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
-    const onEnded = () => setIsPlaying(false);
-    const onLoadedMetadata = () => {
-      const d = webcam.duration;
-      setDuration(isFinite(d) && d > 0 ? d : 0);
-    };
+    const onEnded = () => { setIsPlaying(false); setDuration(webcam.currentTime); };
     webcam.addEventListener("play",  onPlay);
     webcam.addEventListener("pause", onPause);
     webcam.addEventListener("ended", onEnded);
-    webcam.addEventListener("loadedmetadata", onLoadedMetadata);
     return () => {
       webcam.removeEventListener("play",  onPlay);
       webcam.removeEventListener("pause", onPause);
       webcam.removeEventListener("ended", onEnded);
-      webcam.removeEventListener("loadedmetadata", onLoadedMetadata);
     };
   }, [events]);
 
@@ -257,43 +275,32 @@ export default function WatchPlayer({
     document.body.appendChild(canvas);
     const ctx = canvas.getContext("2d")!;
 
-    // ── Load the ReactionBooth logo (white version for green/dark bg) ───
-    // Fetched as SVG text so we can modify fill colors to white.
-    let logoImg: HTMLImageElement | null = null;
-    try {
-      const svgText = await fetch("/assets/ReactionBoothLogo.svg").then((r) => r.text());
-      const whiteSvg = svgText
-        .replace(/#2ee6a6/gi, "#ffffff")
-        .replace(/#f7f9f8/gi, "#ffffff");
-      const blob = new Blob([whiteSvg], { type: "image/svg+xml" });
+    // ── Load the ReactionBooth logo (color-swapped: off-white letters on green bg) ──
+    // Swap #2ee6a6 ↔ #f7f9f8 so letters become off-white and eyes become green,
+    // giving good contrast on the green (#2EE6A6) margin and closing slide.
+    const loadSvgImg = async (svgSource: string): Promise<HTMLImageElement | null> => {
+      const blob = new Blob([svgSource], { type: "image/svg+xml" });
       const url  = URL.createObjectURL(blob);
-      logoImg = new Image();
+      const img  = new Image();
       await new Promise<void>((resolve) => {
-        logoImg!.onload  = () => resolve();
-        logoImg!.onerror = () => { logoImg = null; resolve(); };
-        logoImg!.src = url;
+        img.onload  = () => resolve();
+        img.onerror = () => resolve();
+        img.src = url;
         setTimeout(resolve, 2000);
       });
       URL.revokeObjectURL(url);
-    } catch {
-      logoImg = null;
-    }
+      return img.naturalWidth > 0 ? img : null;
+    };
 
-    // ── Also load logo in brand-color version for the off-white closing slide ──
-    let closingLogoImg: HTMLImageElement | null = null;
-    if (senderPlan === "free") {
-      try {
-        closingLogoImg = new Image();
-        closingLogoImg.src = "/assets/ReactionBoothLogo.svg";
-        await new Promise<void>((resolve) => {
-          closingLogoImg!.onload  = () => resolve();
-          closingLogoImg!.onerror = () => { closingLogoImg = null; resolve(); };
-          setTimeout(resolve, 2000);
-        });
-      } catch {
-        closingLogoImg = null;
-      }
-    }
+    let rawSvg = "";
+    try { rawSvg = await fetch("/assets/ReactionBoothLogo.svg").then((r) => r.text()); } catch {}
+    const swappedSvg = rawSvg
+      .replace(/#2ee6a6/gi, "#SWAP_TMP")
+      .replace(/#f7f9f8/gi, "#2ee6a6")
+      .replace(/#SWAP_TMP/gi, "#f7f9f8");
+
+    const logoImg        = rawSvg ? await loadSvgImg(swappedSvg) : null;
+    const closingLogoImg = (senderPlan === "free" && rawSvg) ? await loadSvgImg(swappedSvg) : null;
 
     // ── Pixel positions that match the CSS layout percentages ───────────
     const isCamMain = selectedLayout === "pip-cam-bottom-right";
@@ -303,20 +310,24 @@ export default function WatchPlayer({
 
       if (selectedLayout.startsWith("pip-") && !isCamMain) {
         // YT = main area, webcam = small PIP
-        const ytX = PIP.mainX, ytY = PIP.mainY, ytW = PIP.mainW, ytH = PIP.mainH;
+        // PIP corners align with the MAIN VIDEO corners (not the canvas edges)
+        const mainR = PIP.mainX + PIP.mainW; // right edge of main video (1835)
+        const mainB = PIP.mainY + PIP.mainH; // bottom edge of main video (1052)
         const wcW = PIP.pipW, wcH = PIP.pipH;
         let wcX = 0, wcY = 0;
-        if      (selectedLayout === "pip-bottom-right") { wcX = CW - wcW; wcY = CH - wcH; }
-        else if (selectedLayout === "pip-bottom-left")  { wcX = 0;        wcY = CH - wcH; }
-        else if (selectedLayout === "pip-top-right")    { wcX = CW - wcW; wcY = 0;       }
-        else                                            { wcX = 0;        wcY = 0;       }
-        return { yt: { x: ytX, y: ytY, w: ytW, h: ytH }, wc: { x: wcX, y: wcY, w: wcW, h: wcH }, ytOnTop: false };
+        if      (selectedLayout === "pip-bottom-right") { wcX = mainR - wcW; wcY = mainB - wcH; }
+        else if (selectedLayout === "pip-bottom-left")  { wcX = PIP.mainX;   wcY = mainB - wcH; }
+        else if (selectedLayout === "pip-top-right")    { wcX = mainR - wcW; wcY = PIP.mainY;   }
+        else                                            { wcX = PIP.mainX;   wcY = PIP.mainY;   }
+        return { yt: { x: PIP.mainX, y: PIP.mainY, w: PIP.mainW, h: PIP.mainH }, wc: { x: wcX, y: wcY, w: wcW, h: wcH }, ytOnTop: false };
       }
 
       if (isCamMain) {
-        // Webcam = main area, YT = small PIP (bottom-right)
+        // Webcam = main area, YT = small PIP aligned to bottom-right of main video
+        const mainR = PIP.mainX + PIP.mainW;
+        const mainB = PIP.mainY + PIP.mainH;
         return {
-          yt: { x: CW - PIP.pipW, y: CH - PIP.pipH, w: PIP.pipW, h: PIP.pipH },
+          yt: { x: mainR - PIP.pipW, y: mainB - PIP.pipH, w: PIP.pipW, h: PIP.pipH },
           wc: { x: PIP.mainX, y: PIP.mainY, w: PIP.mainW, h: PIP.mainH },
           ytOnTop: true,
         };
@@ -395,15 +406,15 @@ export default function WatchPlayer({
             }
           }
 
-          // Off-white overlay (fading in)
-          ctx.fillStyle = `rgba(247, 249, 248, ${fadeProgress})`;
+          // Green overlay (fading in)
+          ctx.fillStyle = `rgba(46, 230, 166, ${fadeProgress})`;
           ctx.fillRect(0, 0, CW, CH);
         } else {
-          // Full off-white closing slide
-          ctx.fillStyle = "#f7f9f8";
+          // Full green closing slide with off-white logo
+          ctx.fillStyle = "#2EE6A6";
           ctx.fillRect(0, 0, CW, CH);
-          // Draw brand-colored logo centered
-          if (closingLogoImg?.complete) {
+          // Draw off-white (color-swapped) logo centered
+          if (closingLogoImg?.complete && closingLogoImg.naturalWidth > 0) {
             const logoH = Math.round(CH * 0.1);
             const logoW = Math.round(logoH * LOGO_ASPECT);
             ctx.drawImage(closingLogoImg, (CW - logoW) / 2, (CH - logoH) / 2, logoW, logoH);
@@ -838,8 +849,8 @@ export default function WatchPlayer({
       width: PIP_MAIN_WIDTH, height: PIP_MAIN_HEIGHT, overflow: "hidden",
     };
     if (isCamMain) return {
-      // YT is the small PIP in the bottom-right corner
-      position: "absolute", right: "0%", bottom: "0%",
+      // YT is the small PIP, bottom-right corner aligned with the webcam main video
+      position: "absolute", right: PIP_MAIN_LEFT, bottom: "2.593%",
       width: PIP_SMALL_WIDTH, height: PIP_SMALL_HEIGHT,
       overflow: "hidden", zIndex: 10,
     };
@@ -856,11 +867,11 @@ export default function WatchPlayer({
         overflow: "hidden", zIndex: 10,
       };
       switch (selectedLayout) {
-        case "pip-bottom-right": return { ...base, right: "0%", bottom: "0%" };
-        case "pip-bottom-left":  return { ...base, left:  "0%", bottom: "0%" };
-        case "pip-top-right":    return { ...base, right: "0%", top:    "0%" };
-        case "pip-top-left":     return { ...base, left:  "0%", top:    "0%" };
-        default:                 return { ...base, right: "0%", bottom: "0%" };
+        case "pip-bottom-right": return { ...base, right: PIP_MAIN_LEFT, bottom: "2.593%" };
+        case "pip-bottom-left":  return { ...base, left:  PIP_MAIN_LEFT, bottom: "2.593%" };
+        case "pip-top-right":    return { ...base, right: PIP_MAIN_LEFT, top:    PIP_MAIN_TOP };
+        case "pip-top-left":     return { ...base, left:  PIP_MAIN_LEFT, top:    PIP_MAIN_TOP };
+        default:                 return { ...base, right: PIP_MAIN_LEFT, bottom: "2.593%" };
       }
     }
     if (isCamMain) return {
@@ -929,16 +940,12 @@ export default function WatchPlayer({
               <div style={getWebcamContainerStyle()}>
                 <video ref={webcamRef} src={reaction.recordingUrl} playsInline crossOrigin="anonymous" className="w-full h-full object-cover" />
               </div>
-              {/* Watermark logo in top margin */}
+              {/* Watermark logo in top margin — color-swapped SVG (off-white on green) */}
               {reaction.watermarked && (
                 <img
-                  src="/assets/ReactionBoothLogo.svg"
+                  src={watermarkSrc}
                   alt="ReactionBooth"
-                  style={{
-                    ...getWatermarkStyle(),
-                    filter: (isPip || isCamMain) ? "brightness(0) invert(1)" : "none",
-                    opacity: (isPip || isCamMain) ? 0.85 : 0.65,
-                  }}
+                  style={{ ...getWatermarkStyle(), opacity: 0.9 }}
                 />
               )}
             </div>
