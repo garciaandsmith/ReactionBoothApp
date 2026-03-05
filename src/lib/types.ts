@@ -24,6 +24,7 @@ export type WatchLayout =
   | "pip-bottom-left"
   | "pip-top-right"
   | "pip-top-left"
+  | "pip-cam-bottom-right"  // webcam is large main, YT is small PIP
   | "side-by-side"
   | "stacked";
 

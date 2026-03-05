@@ -20,6 +20,8 @@ interface WatchPlayerProps {
     recordingUrl: string;
     senderEmail: string;
     recipientEmail: string;
+    requesterName: string | null;
+    recipientName: string | null;
     watermarked: boolean;
     selectedLayout: string | null;
     downloadCount: number;
@@ -36,10 +38,22 @@ type DownloadState =
   | { status: "error"; message: string };
 
 function formatTime(s: number) {
+  if (!isFinite(s) || isNaN(s) || s < 0) return "--:--";
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
+
+// Logo aspect ratio from the SVG viewBox (1509.84 × 267.93)
+const LOGO_ASPECT = 1509.84 / 267.93;
+
+// New PIP layout dimensions (canvas pixels for 1920×1080)
+// Main video: 1750×977, offset 85px left, 75px top
+// PIP video:  550×310, flush to canvas corner
+const PIP = {
+  mainX: 85, mainY: 75, mainW: 1750, mainH: 977,
+  pipW: 550,  pipH: 310,
+};
 
 export default function WatchPlayer({
   reaction,
@@ -68,7 +82,8 @@ export default function WatchPlayer({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [isSeeking, setIsSeeking] = useState(false);
+  // Use ref for isSeeking to avoid stale closure in RAF callbacks
+  const isSeekingRef = useRef(false);
 
   // Layout / volume state
   const [selectedLayout, setSelectedLayout] = useState<WatchLayout>(
@@ -88,18 +103,18 @@ export default function WatchPlayer({
     }
   }, [wcVolume]);
 
-  // Progress ticker
+  // Progress ticker — runs continuously; isSeekingRef prevents overwriting slider value
   useEffect(() => {
     const webcam = webcamRef.current;
     if (!webcam) return;
     let raf: number;
     const tick = () => {
-      if (!isSeeking) setCurrentTime(webcam.currentTime);
+      if (!isSeekingRef.current) setCurrentTime(webcam.currentTime);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [isSeeking]);
+  }, []);
 
   // --- Synchronized playback ---
   const syncYouTubeToWebcam = useCallback(() => {
@@ -155,7 +170,10 @@ export default function WatchPlayer({
     const onPause = () => { setIsPlaying(false); youtubeRef.current?.pause(); stopSyncLoop(); };
     const onSeeked = () => syncYouTubeToWebcam();
     const onEnded  = () => { setIsPlaying(false); youtubeRef.current?.pause(); stopSyncLoop(); };
-    const onLoadedMetadata = () => setDuration(webcam.duration);
+    const onLoadedMetadata = () => {
+      const d = webcam.duration;
+      setDuration(isFinite(d) && d > 0 ? d : 0);
+    };
     webcam.addEventListener("play",  onPlay);
     webcam.addEventListener("pause", onPause);
     webcam.addEventListener("seeked", onSeeked);
@@ -178,7 +196,10 @@ export default function WatchPlayer({
     const onPlay  = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
     const onEnded = () => setIsPlaying(false);
-    const onLoadedMetadata = () => setDuration(webcam.duration);
+    const onLoadedMetadata = () => {
+      const d = webcam.duration;
+      setDuration(isFinite(d) && d > 0 ? d : 0);
+    };
     webcam.addEventListener("play",  onPlay);
     webcam.addEventListener("pause", onPause);
     webcam.addEventListener("ended", onEnded);
@@ -236,30 +257,81 @@ export default function WatchPlayer({
     document.body.appendChild(canvas);
     const ctx = canvas.getContext("2d")!;
 
-    // ── Pixel positions that match the CSS layout percentages ───────────
-    const positions = (() => {
-      if (!hasEvents) return { yt: null, wc: { x: 0, y: 0, w: CW, h: CH } };
-      if (selectedLayout.startsWith("pip-")) {
-        const ytX = Math.round(0.03385 * CW), ytY = Math.round(0.06019 * CH);
-        const ytW = Math.round(0.77344 * CW), ytH = Math.round(0.77315 * CH);
-        const wcW = Math.round(0.35104 * CW), wcH = Math.round((wcW * 9) / 16);
-        const mx  = Math.round(0.03385 * CW), my  = Math.round(0.06019 * CH);
-        let wcX = 0, wcY = 0;
-        if      (selectedLayout === "pip-bottom-right") { wcX = CW - mx - wcW; wcY = CH - my - wcH; }
-        else if (selectedLayout === "pip-bottom-left")  { wcX = mx;            wcY = CH - my - wcH; }
-        else if (selectedLayout === "pip-top-right")    { wcX = CW - mx - wcW; wcY = my; }
-        else                                            { wcX = mx;            wcY = my; }
-        return { yt: { x: ytX, y: ytY, w: ytW, h: ytH }, wc: { x: wcX, y: wcY, w: wcW, h: wcH } };
+    // ── Load the ReactionBooth logo (white version for green/dark bg) ───
+    // Fetched as SVG text so we can modify fill colors to white.
+    let logoImg: HTMLImageElement | null = null;
+    try {
+      const svgText = await fetch("/assets/ReactionBoothLogo.svg").then((r) => r.text());
+      const whiteSvg = svgText
+        .replace(/#2ee6a6/gi, "#ffffff")
+        .replace(/#f7f9f8/gi, "#ffffff");
+      const blob = new Blob([whiteSvg], { type: "image/svg+xml" });
+      const url  = URL.createObjectURL(blob);
+      logoImg = new Image();
+      await new Promise<void>((resolve) => {
+        logoImg!.onload  = () => resolve();
+        logoImg!.onerror = () => { logoImg = null; resolve(); };
+        logoImg!.src = url;
+        setTimeout(resolve, 2000);
+      });
+      URL.revokeObjectURL(url);
+    } catch {
+      logoImg = null;
+    }
+
+    // ── Also load logo in brand-color version for the off-white closing slide ──
+    let closingLogoImg: HTMLImageElement | null = null;
+    if (senderPlan === "free") {
+      try {
+        closingLogoImg = new Image();
+        closingLogoImg.src = "/assets/ReactionBoothLogo.svg";
+        await new Promise<void>((resolve) => {
+          closingLogoImg!.onload  = () => resolve();
+          closingLogoImg!.onerror = () => { closingLogoImg = null; resolve(); };
+          setTimeout(resolve, 2000);
+        });
+      } catch {
+        closingLogoImg = null;
       }
+    }
+
+    // ── Pixel positions that match the CSS layout percentages ───────────
+    const isCamMain = selectedLayout === "pip-cam-bottom-right";
+
+    const positions = (() => {
+      if (!hasEvents) return { yt: null, wc: { x: 0, y: 0, w: CW, h: CH }, ytOnTop: false };
+
+      if (selectedLayout.startsWith("pip-") && !isCamMain) {
+        // YT = main area, webcam = small PIP
+        const ytX = PIP.mainX, ytY = PIP.mainY, ytW = PIP.mainW, ytH = PIP.mainH;
+        const wcW = PIP.pipW, wcH = PIP.pipH;
+        let wcX = 0, wcY = 0;
+        if      (selectedLayout === "pip-bottom-right") { wcX = CW - wcW; wcY = CH - wcH; }
+        else if (selectedLayout === "pip-bottom-left")  { wcX = 0;        wcY = CH - wcH; }
+        else if (selectedLayout === "pip-top-right")    { wcX = CW - wcW; wcY = 0;       }
+        else                                            { wcX = 0;        wcY = 0;       }
+        return { yt: { x: ytX, y: ytY, w: ytW, h: ytH }, wc: { x: wcX, y: wcY, w: wcW, h: wcH }, ytOnTop: false };
+      }
+
+      if (isCamMain) {
+        // Webcam = main area, YT = small PIP (bottom-right)
+        return {
+          yt: { x: CW - PIP.pipW, y: CH - PIP.pipH, w: PIP.pipW, h: PIP.pipH },
+          wc: { x: PIP.mainX, y: PIP.mainY, w: PIP.mainW, h: PIP.mainH },
+          ytOnTop: true,
+        };
+      }
+
       if (selectedLayout === "side-by-side") {
         return {
           yt: { x: 0,                        y: Math.round(0.25 * CH), w: Math.round(0.48438 * CW), h: Math.round(0.5 * CH) },
           wc: { x: Math.round(0.51563 * CW), y: Math.round(0.25 * CH), w: Math.round(0.48438 * CW), h: Math.round(0.5 * CH) },
+          ytOnTop: false,
         };
       }
       // stacked
       const h = Math.round(0.47917 * CH);
-      return { yt: { x: 0, y: 0, w: CW, h }, wc: { x: 0, y: CH - h, w: CW, h } };
+      return { yt: { x: 0, y: 0, w: CW, h }, wc: { x: 0, y: CH - h, w: CW, h }, ytOnTop: false };
     })();
 
     // ── YouTube thumbnail — loads in background while recording ──────────
@@ -277,29 +349,128 @@ export default function WatchPlayer({
     }
 
     // ── Canvas draw helper ───────────────────────────────────────────────
-    const drawToCanvas = () => {
+    // closingSlideElapsed: seconds since closing slide started (undefined = normal frame)
+    const drawToCanvas = (closingSlideElapsed?: number) => {
+      // ── Closing slide ────────────────────────────────────────────────
+      if (closingSlideElapsed !== undefined) {
+        const FADE_DURATION = 0.5; // seconds for cross-fade
+        const fadeProgress = Math.min(closingSlideElapsed / FADE_DURATION, 1);
+
+        if (fadeProgress < 1) {
+          // Cross-fade: draw last normal frame, then overlay off-white with increasing opacity
+          ctx.fillStyle = "#000";
+          ctx.fillRect(0, 0, CW, CH);
+
+          if (!positions.ytOnTop) {
+            // Draw YT behind webcam
+            if (hasEvents && positions.yt) {
+              const { x, y, w, h } = positions.yt;
+              if (thumbImg?.complete && thumbImg.naturalWidth > 0) {
+                try { ctx.drawImage(thumbImg, x, y, w, h); } catch { /* taint */ }
+                ctx.fillStyle = "rgba(0,0,0,0.28)";
+                ctx.fillRect(x, y, w, h);
+              } else {
+                ctx.fillStyle = "#111827";
+                ctx.fillRect(x, y, w, h);
+              }
+            }
+            if (webcam.readyState >= 2) {
+              try { ctx.drawImage(webcam, positions.wc.x, positions.wc.y, positions.wc.w, positions.wc.h); } catch { /* skip */ }
+            }
+          } else {
+            // Draw webcam behind YT
+            if (webcam.readyState >= 2) {
+              try { ctx.drawImage(webcam, positions.wc.x, positions.wc.y, positions.wc.w, positions.wc.h); } catch { /* skip */ }
+            }
+            if (hasEvents && positions.yt) {
+              const { x, y, w, h } = positions.yt;
+              if (thumbImg?.complete && thumbImg.naturalWidth > 0) {
+                try { ctx.drawImage(thumbImg, x, y, w, h); } catch { /* taint */ }
+                ctx.fillStyle = "rgba(0,0,0,0.28)";
+                ctx.fillRect(x, y, w, h);
+              } else {
+                ctx.fillStyle = "#111827";
+                ctx.fillRect(x, y, w, h);
+              }
+            }
+          }
+
+          // Off-white overlay (fading in)
+          ctx.fillStyle = `rgba(247, 249, 248, ${fadeProgress})`;
+          ctx.fillRect(0, 0, CW, CH);
+        } else {
+          // Full off-white closing slide
+          ctx.fillStyle = "#f7f9f8";
+          ctx.fillRect(0, 0, CW, CH);
+          // Draw brand-colored logo centered
+          if (closingLogoImg?.complete) {
+            const logoH = Math.round(CH * 0.1);
+            const logoW = Math.round(logoH * LOGO_ASPECT);
+            ctx.drawImage(closingLogoImg, (CW - logoW) / 2, (CH - logoH) / 2, logoW, logoH);
+          }
+        }
+        return;
+      }
+
+      // ── Normal frame ────────────────────────────────────────────────
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, CW, CH);
 
-      if (hasEvents && positions.yt) {
-        const { x, y, w, h } = positions.yt;
-        if (thumbImg?.complete && thumbImg.naturalWidth > 0) {
-          try { ctx.drawImage(thumbImg, x, y, w, h); } catch { /* taint */ }
-          ctx.fillStyle = "rgba(0,0,0,0.28)";
-          ctx.fillRect(x, y, w, h);
-        } else {
-          ctx.fillStyle = "#111827";
-          ctx.fillRect(x, y, w, h);
+      const drawYT = () => {
+        if (hasEvents && positions.yt) {
+          const { x, y, w, h } = positions.yt;
+          if (thumbImg?.complete && thumbImg.naturalWidth > 0) {
+            try { ctx.drawImage(thumbImg, x, y, w, h); } catch { /* taint */ }
+            ctx.fillStyle = "rgba(0,0,0,0.28)";
+            ctx.fillRect(x, y, w, h);
+          } else {
+            ctx.fillStyle = "#111827";
+            ctx.fillRect(x, y, w, h);
+          }
         }
+      };
+
+      const drawWC = () => {
+        if (webcam.readyState >= 2 /* HAVE_CURRENT_DATA */) {
+          try {
+            ctx.drawImage(webcam, positions.wc.x, positions.wc.y, positions.wc.w, positions.wc.h);
+          } catch { /* skip frame */ }
+        }
+      };
+
+      if (!positions.ytOnTop) {
+        // Standard: YT first (behind), webcam on top
+        drawYT();
+        drawWC();
+      } else {
+        // Inverted PIP: webcam first (behind), YT on top
+        drawWC();
+        drawYT();
       }
 
-      if (webcam.readyState >= 2 /* HAVE_CURRENT_DATA */) {
-        try {
-          ctx.drawImage(webcam, positions.wc.x, positions.wc.y, positions.wc.w, positions.wc.h);
-        } catch { /* skip frame */ }
-      }
-
-      if (reaction.watermarked) {
+      // Watermark logo in the top margin (pip/cam-main layouts only)
+      if (reaction.watermarked && selectedLayout.startsWith("pip-")) {
+        const topMargin = isStackedLayout ? 0 : PIP.mainY; // 75px
+        const logoH = Math.round(topMargin * 0.55);
+        const logoW = Math.round(logoH * LOGO_ASPECT);
+        if (logoImg?.complete && logoH > 4 && logoW > 0) {
+          ctx.save();
+          ctx.globalAlpha = 0.85;
+          ctx.drawImage(logoImg, (CW - logoW) / 2, (topMargin - logoH) / 2, logoW, logoH);
+          ctx.restore();
+        } else if (logoH > 0) {
+          // Fallback text
+          const fs  = Math.max(11, Math.round(topMargin * 0.45));
+          ctx.save();
+          ctx.font         = `500 ${fs}px system-ui, sans-serif`;
+          ctx.fillStyle    = "rgba(255,255,255,0.85)";
+          ctx.textBaseline = "middle";
+          ctx.textAlign    = "center";
+          ctx.fillText("ReactionBooth", CW / 2, topMargin / 2);
+          ctx.restore();
+        }
+      } else if (reaction.watermarked) {
+        // Non-PIP layouts: bottom-left corner watermark
         const fs  = Math.max(13, Math.round(CW * 0.007));
         const pad = Math.round(CW * 0.008);
         ctx.save();
@@ -310,7 +481,7 @@ export default function WatchPlayer({
         ctx.restore();
       }
 
-      if (webcam.duration > 0) {
+      if (webcam.duration > 0 && isFinite(webcam.duration)) {
         setRecordingProgress(Math.round((webcam.currentTime / webcam.duration) * 100));
       }
     };
@@ -341,13 +512,9 @@ export default function WatchPlayer({
     setDownloadState({ status: "capturing" });
     webcam.currentTime = 0;
     // Wait for the seek to settle before starting the encoder loop.
-    // The video element stays at real CSS dimensions (covered by the opaque
-    // overlay above), so Chrome will decode frames correctly.
     await new Promise<void>((resolve) => {
       const onSeeked = () => resolve();
       webcam.addEventListener("seeked", onSeeked, { once: true });
-      // Fallback: resolve after 1 s in case the seeked event never fires
-      // (e.g. currentTime was already 0).
       setTimeout(() => { webcam.removeEventListener("seeked", onSeeked); resolve(); }, 1000);
     });
 
@@ -358,9 +525,6 @@ export default function WatchPlayer({
       typeof VideoFrame              !== "undefined" &&
       typeof MediaStreamTrackProcessor !== "undefined";
 
-    // Verify that the browser can actually encode H.264 at our target resolution
-    // before committing to the WebCodecs path (e.g. Linux Chrome without a
-    // hardware encoder reports WebCodecs as available but fails at configure()).
     let useWebCodecs = false;
     if (hasWebCodecs) {
       try {
@@ -409,9 +573,6 @@ export default function WatchPlayer({
       });
 
       // Audio: read raw PCM from the webcam element's audio track.
-      // captureStream() is used instead of createMediaElementSource() to
-      // avoid interfering with playback; the element's .volume setting is
-      // already applied to the captured track.
       let audioEncoder: AudioEncoder | null = null;
       let audioReader: ReadableStreamDefaultReader<AudioData> | null = null;
 
@@ -431,7 +592,6 @@ export default function WatchPlayer({
         });
         const processor = new MediaStreamTrackProcessor({ track: audioTrack });
         audioReader = (processor.readable as ReadableStream<AudioData>).getReader();
-        // Drain audio frames in the background until the reader is cancelled.
         (async () => {
           try {
             for (;;) {
@@ -485,7 +645,41 @@ export default function WatchPlayer({
       stopRecordingRef.current = () => { stop(); };
       drawLoopRef.current = requestAnimationFrame(encodeFrame);
       try { await webcam.play(); } catch (e) { console.error("play() failed:", e); }
-      webcam.addEventListener("ended", () => stop(), { once: true });
+
+      // When webcam ends, either add the closing slide (free) or stop directly.
+      webcam.addEventListener("ended", () => {
+        if (!active) return;
+        cancelAnimationFrame(drawLoopRef.current);
+
+        if (senderPlan !== "free") {
+          stop();
+          return;
+        }
+
+        // ── 3-second closing slide ──────────────────────────────────
+        const CLOSING_DURATION_S = 3;
+        const CLOSING_FRAMES = Math.round(30 * CLOSING_DURATION_S);
+        let closingFrame = 0;
+
+        const encodeClosingFrame = () => {
+          if (!active || closingFrame >= CLOSING_FRAMES) { stop(); return; }
+          try {
+            const elapsed = closingFrame / 30;
+            drawToCanvas(elapsed);
+            const ts = Math.round((frameCount + closingFrame) * (1_000_000 / 30));
+            const frame = new VideoFrame(canvas, { timestamp: ts });
+            videoEncoder.encode(frame, { keyFrame: (frameCount + closingFrame) % 90 === 0 });
+            frame.close();
+            closingFrame++;
+          } catch (e) {
+            console.error("Closing frame error:", e);
+            stop();
+            return;
+          }
+          drawLoopRef.current = requestAnimationFrame(encodeClosingFrame);
+        };
+        drawLoopRef.current = requestAnimationFrame(encodeClosingFrame);
+      }, { once: true });
 
     } else {
       // ── Path B — MediaRecorder fallback (.mp4 on Safari, .webm elsewhere)
@@ -518,8 +712,29 @@ export default function WatchPlayer({
       drawLoopRef.current = requestAnimationFrame(draw);
       recorder.start(1_000);
       try { await webcam.play(); } catch (e) { console.error("play() failed:", e); }
+
+      // When webcam ends, either add the closing slide (free) or stop directly.
       webcam.addEventListener("ended", () => {
-        if (recorder.state !== "inactive") recorder.stop();
+        if (senderPlan !== "free") {
+          if (recorder.state !== "inactive") recorder.stop();
+          return;
+        }
+
+        // ── 3-second closing slide ──────────────────────────────────
+        cancelAnimationFrame(drawLoopRef.current);
+        const CLOSING_DURATION_S = 3;
+        const startMs = Date.now();
+
+        const drawClosingFrame = () => {
+          const elapsed = (Date.now() - startMs) / 1000;
+          if (elapsed >= CLOSING_DURATION_S) {
+            if (recorder.state !== "inactive") recorder.stop();
+            return;
+          }
+          drawToCanvas(elapsed);
+          drawLoopRef.current = requestAnimationFrame(drawClosingFrame);
+        };
+        drawLoopRef.current = requestAnimationFrame(drawClosingFrame);
       }, { once: true });
     }
     } catch (e) {
@@ -553,12 +768,6 @@ export default function WatchPlayer({
   }, []);
 
   // ── Server-side FFmpeg composition ─────────────────────────────────────
-  //
-  // Posts layout + volume settings to /api/reactions/[id]/compose, which
-  // downloads the YouTube video via yt-dlp and composites it with the webcam
-  // recording using FFmpeg.  The composed MP4 URL is returned and downloaded
-  // directly — no screen capture, no browser recording, no cinema mode.
-  // ─────────────────────────────────────────────────────────────────────
   const [compositingElapsed, setCompositingElapsed] = useState(0);
 
   useEffect(() => {
@@ -585,7 +794,6 @@ export default function WatchPlayer({
         throw new Error((body as { error?: string }).error ?? `Server error ${res.status}`);
       }
       const { composedUrl } = await res.json() as { composedUrl: string };
-      // Track the download (enforces per-reaction limit server-side).
       await fetch(`/api/reactions/${reaction.id}/download`, { method: "POST" }).catch(() => {});
       if (senderPlan === "free") setDownloadUsed(true);
       const a = document.createElement("a");
@@ -603,8 +811,20 @@ export default function WatchPlayer({
     }
   }, [downloadUsed, reaction.id, selectedLayout, ytVolume, wcVolume, senderPlan]);
 
-  const isPip     = selectedLayout.startsWith("pip-");
+  // Layout helpers
+  const isPip     = selectedLayout.startsWith("pip-") && selectedLayout !== "pip-cam-bottom-right";
+  const isCamMain = selectedLayout === "pip-cam-bottom-right";
   const isStacked = selectedLayout === "stacked";
+
+  // New PIP proportions as CSS percentages (based on 1920×1080 canvas)
+  // Main area: 85px left / 75px top / 1750px wide / 977px tall
+  // PIP:       550px wide / 310px tall, flush to canvas corner
+  const PIP_MAIN_LEFT   = "4.427%";
+  const PIP_MAIN_TOP    = "6.944%";
+  const PIP_MAIN_WIDTH  = "91.146%";
+  const PIP_MAIN_HEIGHT = "90.463%";
+  const PIP_SMALL_WIDTH  = "28.646%";
+  const PIP_SMALL_HEIGHT = "28.704%";
 
   const getPreviewContainerStyle = (): React.CSSProperties => {
     if (isStacked) return { backgroundColor: "#2EE6A6", aspectRatio: "9/16", height: "calc(100vh - 14rem)" };
@@ -613,58 +833,89 @@ export default function WatchPlayer({
 
   const getYouTubeContainerStyle = (): React.CSSProperties => {
     if (!hasEvents) return { display: "none" };
-    if (isPip) return { position: "absolute", left: "3.385%", top: "6.019%", width: "77.344%", height: "77.315%", overflow: "hidden" };
-    if (selectedLayout === "side-by-side") return { position: "absolute", left: 0, top: "25%", width: "48.438%", height: "50%", overflow: "hidden" };
+    if (isPip) return {
+      position: "absolute", left: PIP_MAIN_LEFT, top: PIP_MAIN_TOP,
+      width: PIP_MAIN_WIDTH, height: PIP_MAIN_HEIGHT, overflow: "hidden",
+    };
+    if (isCamMain) return {
+      // YT is the small PIP in the bottom-right corner
+      position: "absolute", right: "0%", bottom: "0%",
+      width: PIP_SMALL_WIDTH, height: PIP_SMALL_HEIGHT,
+      overflow: "hidden", zIndex: 10,
+    };
+    if (selectedLayout === "side-by-side") return {
+      position: "absolute", left: 0, top: "25%", width: "48.438%", height: "50%", overflow: "hidden",
+    };
     return { position: "absolute", top: 0, left: 0, width: "100%", height: "47.917%", overflow: "hidden" };
   };
 
   const getWebcamContainerStyle = (): React.CSSProperties => {
     if (isPip) {
-      const base: React.CSSProperties = { position: "absolute", width: "35.104%", aspectRatio: "16/9", overflow: "hidden", zIndex: 10 };
-      const margin = "3.385%", vMargin = "6.019%";
+      const base: React.CSSProperties = {
+        position: "absolute", width: PIP_SMALL_WIDTH, height: PIP_SMALL_HEIGHT,
+        overflow: "hidden", zIndex: 10,
+      };
       switch (selectedLayout) {
-        case "pip-bottom-right": return { ...base, right: margin, bottom: vMargin };
-        case "pip-bottom-left":  return { ...base, left:  margin, bottom: vMargin };
-        case "pip-top-right":    return { ...base, right: margin, top:    vMargin };
-        case "pip-top-left":     return { ...base, left:  margin, top:    vMargin };
-        default:                 return { ...base, right: margin, bottom: vMargin };
+        case "pip-bottom-right": return { ...base, right: "0%", bottom: "0%" };
+        case "pip-bottom-left":  return { ...base, left:  "0%", bottom: "0%" };
+        case "pip-top-right":    return { ...base, right: "0%", top:    "0%" };
+        case "pip-top-left":     return { ...base, left:  "0%", top:    "0%" };
+        default:                 return { ...base, right: "0%", bottom: "0%" };
       }
     }
-    if (selectedLayout === "side-by-side") return { position: "absolute", left: "51.563%", top: "25%", width: "48.438%", height: "50%", overflow: "hidden" };
+    if (isCamMain) return {
+      // Webcam is the large main area
+      position: "absolute", left: PIP_MAIN_LEFT, top: PIP_MAIN_TOP,
+      width: PIP_MAIN_WIDTH, height: PIP_MAIN_HEIGHT, overflow: "hidden",
+    };
+    if (selectedLayout === "side-by-side") return {
+      position: "absolute", left: "51.563%", top: "25%", width: "48.438%", height: "50%", overflow: "hidden",
+    };
     return { position: "absolute", bottom: 0, left: 0, width: "100%", height: "47.917%", overflow: "hidden" };
   };
 
   const getWatermarkStyle = (): React.CSSProperties => {
-    const base: React.CSSProperties = { position: "absolute", color: "white", fontSize: "clamp(8px, 1vw, 13px)", fontWeight: 500, opacity: 0.65, pointerEvents: "none", letterSpacing: "0.04em", zIndex: 20 };
-    if (isStacked)                        return { ...base, top: "49.6%", left: "50%", transform: "translate(-50%, -50%)" };
-    if (selectedLayout === "side-by-side") return { ...base, bottom: "3%", left: "50%", transform: "translateX(-50%)" };
-    return { ...base, bottom: "1.5%", left: "1.5%" };
+    const base: React.CSSProperties = {
+      position: "absolute",
+      pointerEvents: "none",
+      zIndex: 20,
+    };
+    // PIP and cam-main layouts: watermark lives in the top green margin, centered
+    if (isPip || isCamMain) {
+      return {
+        ...base,
+        top: "1.2%",
+        left: "50%",
+        transform: "translateX(-50%)",
+        height: "4%",
+        width: "auto",
+      };
+    }
+    if (isStacked) return { ...base, top: "49.6%", left: "50%", transform: "translate(-50%, -50%)", height: "3%", width: "auto" };
+    if (selectedLayout === "side-by-side") return { ...base, bottom: "3%", left: "50%", transform: "translateX(-50%)", height: "3%", width: "auto" };
+    return { ...base, bottom: "1.5%", left: "1.5%", height: "3%", width: "auto" };
   };
 
   const isCapturing = downloadState.status === "capturing";
+
+  const recipientLabel = reaction.recipientName || reaction.recipientEmail;
+  const senderLabel    = reaction.requesterName  || reaction.senderEmail;
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
       <div className="text-center mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Reaction Video</h1>
         <p className="text-gray-500">
-          {reaction.recipientEmail}&apos;s reaction to a video from {reaction.senderEmail}
+          {recipientLabel}&apos;s reaction to a video from {senderLabel}
         </p>
       </div>
 
-      {/* ── Video preview area ─────────────────────────────────────────────
-          During recording a full-size opaque overlay covers the preview so
-          the user sees only the spinner. The <video> element stays at its
-          real size underneath the overlay, which lets ctx.drawImage() keep
-          capturing frames (unlike h-0 which collapses the element to 0×0
-          and causes play() to fail silently in Chrome).
-      ─────────────────────────────────────────────────────────────────── */}
-
+      {/* ── Video preview area ──────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-2 relative">
-        {/* Normal preview — always rendered so the video element stays in DOM */}
         {hasEvents ? (
           <div className={isStacked ? "flex justify-center bg-black" : ""}>
             <div className="relative overflow-hidden" style={getPreviewContainerStyle()}>
+              {/* YouTube — behind in standard PIP, on top in cam-main */}
               <div style={getYouTubeContainerStyle()}>
                 <YouTubePlayer
                   ref={youtubeRef}
@@ -674,13 +925,22 @@ export default function WatchPlayer({
                   className="relative w-full h-full bg-black overflow-hidden"
                 />
               </div>
+              {/* Webcam */}
               <div style={getWebcamContainerStyle()}>
                 <video ref={webcamRef} src={reaction.recordingUrl} playsInline crossOrigin="anonymous" className="w-full h-full object-cover" />
               </div>
-              {reaction.watermarked && <span style={getWatermarkStyle()}>ReactionBooth</span>}
-              {/* Recording badge — visible inside the cinema overlay so the
-                  user knows capture is active (captured in the output too,
-                  but that's standard for screen-recorded reaction videos).  */}
+              {/* Watermark logo in top margin */}
+              {reaction.watermarked && (
+                <img
+                  src="/assets/ReactionBoothLogo.svg"
+                  alt="ReactionBooth"
+                  style={{
+                    ...getWatermarkStyle(),
+                    filter: (isPip || isCamMain) ? "brightness(0) invert(1)" : "none",
+                    opacity: (isPip || isCamMain) ? 0.85 : 0.65,
+                  }}
+                />
+              )}
             </div>
           </div>
         ) : (
@@ -689,10 +949,9 @@ export default function WatchPlayer({
           </div>
         )}
 
-        {/* Opaque overlay shown during canvas recording — covers the preview
-            while the video plays off-screen for ctx.drawImage() capture. */}
+        {/* Opaque overlay shown during canvas recording */}
         {isCapturing && (
-          <div className={`absolute inset-0 bg-gray-900 flex flex-col items-center justify-center z-20 ${isStacked ? "" : ""}`}>
+          <div className="absolute inset-0 bg-gray-900 flex flex-col items-center justify-center z-20">
             <div className="w-14 h-14 border-[5px] border-brand border-t-transparent rounded-full animate-spin mb-5" />
             <p className="text-white font-semibold text-xl mb-1">Recording HD video…</p>
             <p className="text-gray-400 text-sm mb-6">
@@ -714,9 +973,10 @@ export default function WatchPlayer({
           <div className="flex items-center gap-3">
             <span className="text-xs text-gray-400 tabular-nums w-10 text-right">{formatTime(currentTime)}</span>
             <input
-              type="range" min={0} max={duration || 1} step={0.1} value={currentTime}
-              onMouseDown={() => setIsSeeking(true)}
-              onMouseUp={()   => setIsSeeking(false)}
+              type="range" min={0} max={duration > 0 ? duration : 1} step={0.1} value={currentTime}
+              onPointerDown={() => { isSeekingRef.current = true; }}
+              onPointerUp={()   => { isSeekingRef.current = false; }}
+              onPointerCancel={() => { isSeekingRef.current = false; }}
               onChange={handleSeek}
               className="flex-1 h-1.5 bg-gray-200 rounded-full appearance-none cursor-pointer accent-brand"
             />
@@ -756,14 +1016,14 @@ export default function WatchPlayer({
         </div>
       )}
 
-      {/* Hint text (hidden during recording or compositing) */}
+      {/* Hint text */}
       {hasEvents && downloadState.status === "idle" && (
         <p className="text-center text-xs text-gray-400 mb-6">
           Press play above to preview. Adjust layout and volume before downloading.
         </p>
       )}
 
-      {/* Layout chooser (hidden during recording or compositing) */}
+      {/* Layout chooser */}
       {hasEvents && downloadState.status === "idle" && (
         <div className="bg-gray-50 rounded-2xl border border-gray-200 p-6 mb-8">
           <h3 className="text-sm font-semibold text-gray-700 mb-3">Layout</h3>
@@ -906,6 +1166,15 @@ function CompactVolume({
 function LayoutIcon({ layout, active }: { layout: WatchLayout; active: boolean }) {
   const bg = active ? "bg-brand" : "bg-gray-600";
   const fg = active ? "bg-brand-400" : "bg-gray-400";
+
+  if (layout === "pip-cam-bottom-right") {
+    // Webcam (lighter) is the large area, YouTube (darker) is the small PIP
+    return (
+      <div className={`w-12 h-8 ${fg} rounded relative`}>
+        <div className={`absolute bottom-0.5 right-0.5 w-4 h-3 ${bg} rounded-sm`} />
+      </div>
+    );
+  }
 
   if (layout.startsWith("pip-")) {
     const posMap: Record<string, string> = {

@@ -9,7 +9,7 @@ export const PLANS = {
     linkLifespanDays: 7,
     dashboard: false,
     customBranding: false,
-    layouts: ["pip-bottom-right", "side-by-side", "stacked"] as WatchLayout[],
+    layouts: ["pip-bottom-right", "pip-cam-bottom-right", "side-by-side", "stacked"] as WatchLayout[],
     downloadBurnsAfterUse: true,
   },
   pro: {
@@ -25,6 +25,7 @@ export const PLANS = {
       "pip-bottom-left",
       "pip-top-right",
       "pip-top-left",
+      "pip-cam-bottom-right",
       "side-by-side",
       "stacked",
     ] as WatchLayout[],
@@ -39,6 +40,7 @@ export const LAYOUTS: Record<WatchLayout, string> = {
   "pip-bottom-left": "PiP Bottom Left",
   "pip-top-right": "PiP Top Right",
   "pip-top-left": "PiP Top Left",
+  "pip-cam-bottom-right": "PiP (Cam Main)",
   "side-by-side": "Side by Side",
   "stacked": "Stacked",
 };

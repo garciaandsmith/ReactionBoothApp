@@ -104,6 +104,7 @@ export async function POST(
       watermark: plan === "free",
       volume,
       cookiesContent,
+      closingSlide: plan === "free",
     });
 
     // Upload the composed MP4 to Vercel Blob
