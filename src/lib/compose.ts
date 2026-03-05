@@ -186,28 +186,30 @@ function buildFilterGraph(
     filters.push(`color=c=${BRAND_HEX}:s=1920x1080:d=${dur}[canvas]`);
     filters.push(`[canvas][yt_s]overlay=${mx}:${my}[with_yt]`);
 
-    // PIP position (webcam): flush to canvas corner
-    const CW = 1920, CH = 1080;
+    // PIP position (webcam): corners align with main video edges (not canvas edges)
+    const mainR = PIP_MAIN.x + PIP_MAIN.w; // 1835
+    const mainB = PIP_MAIN.y + PIP_MAIN.h; // 1052
     let wcX: number, wcY: number;
     switch (layout) {
-      case "pip-bottom-right": wcX = CW - pw;  wcY = CH - ph;  break;
-      case "pip-bottom-left":  wcX = 0;         wcY = CH - ph;  break;
-      case "pip-top-right":    wcX = CW - pw;  wcY = 0;         break;
-      case "pip-top-left":     wcX = 0;         wcY = 0;         break;
-      default:                 wcX = CW - pw;  wcY = CH - ph;
+      case "pip-bottom-right": wcX = mainR - pw; wcY = mainB - ph; break; // 1285, 742
+      case "pip-bottom-left":  wcX = PIP_MAIN.x; wcY = mainB - ph; break; // 85, 742
+      case "pip-top-right":    wcX = mainR - pw; wcY = PIP_MAIN.y; break; // 1285, 75
+      case "pip-top-left":     wcX = PIP_MAIN.x; wcY = PIP_MAIN.y; break; // 85, 75
+      default:                 wcX = mainR - pw; wcY = mainB - ph;
     }
     filters.push(`[with_yt][wc_s]overlay=${wcX}:${wcY}[outv]`);
 
   } else if (layout === "pip-cam-bottom-right") {
-    // Inverted PIP: webcam is large main, YT is small PIP (bottom-right)
+    // Inverted PIP: webcam is large main, YT is small PIP aligned to main video corner
     const { x: mx, y: my, w: mw, h: mh } = PIP_MAIN;
     const { w: pw, h: ph } = PIP_SMALL;
-    const CW = 1920, CH = 1080;
+    const mainR = mx + mw; // 1835
+    const mainB = my + mh; // 1052
     filters.push(`[1:v]scale=${mw}:${mh}:force_original_aspect_ratio=increase,crop=${mw}:${mh}[wc_s]`);
     filters.push(`[ytv]scale=${pw}:${ph}:force_original_aspect_ratio=increase,crop=${pw}:${ph}[yt_s]`);
     filters.push(`color=c=${BRAND_HEX}:s=1920x1080:d=${dur}[canvas]`);
     filters.push(`[canvas][wc_s]overlay=${mx}:${my}[with_wc]`);
-    filters.push(`[with_wc][yt_s]overlay=${CW - pw}:${CH - ph}[outv]`);
+    filters.push(`[with_wc][yt_s]overlay=${mainR - pw}:${mainB - ph}[outv]`);
 
   } else if (layout === "side-by-side") {
     filters.push(`[ytv]scale=930:540:force_original_aspect_ratio=increase,crop=930:540[yt_s]`);
