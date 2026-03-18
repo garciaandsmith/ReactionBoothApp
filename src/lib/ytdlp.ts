@@ -133,15 +133,9 @@ function isPermanentError(message: string): boolean {
 // null (first) = omit --extractor-args entirely so yt-dlp uses its own
 // built-in client selection.  Modern yt-dlp (2024 +) auto-negotiates PO
 // (Proof-of-Origin) tokens through this path; explicitly naming a client
-// bypasses that logic and causes "Requested format is not available" on any
-// video where YouTube requires a valid PO token.
-//
-// The remaining entries are fallbacks in case the default selection fails for
-// a particular video.  "mweb" (mobile-web) was added in yt-dlp 2024 and is
-// often the most reliable named client.  "web" is intentionally absent: it
-// requires a PO token that yt-dlp cannot obtain in a server environment, so
-// it always fails when used explicitly.
-const PLAYER_CLIENTS = [null, "ios", "android", "mweb", "tv_embedded,web"] as const;
+// bypasses that logic and can cause "Requested format is not available" on
+// videos where YouTube requires a valid PO token.
+const PLAYER_CLIENTS = [null, "tv_embedded,web", "ios", "android"] as const;
 type PlayerClient = (typeof PLAYER_CLIENTS)[number];
 const RETRY_DELAY_MS = 2_000;
 
@@ -232,6 +226,33 @@ export async function downloadWithYtDlp(
       if (i < PLAYER_CLIENTS.length - 1) {
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
       }
+    }
+  }
+
+  // If a proxy was used and all attempts failed, try once more without it.
+  // A broken/expired YTDLP_PROXY is the most common cause of "Requested format
+  // is not available" across ALL player clients — the proxy intercepts YouTube
+  // API responses and returns something yt-dlp can't parse into a format list.
+  if (proxy) {
+    console.warn("[yt-dlp] all proxy attempts failed — retrying without proxy");
+    const args: string[] = [
+      normalisedUrl,
+      "-f", "bestvideo[height<=1920]+bestaudio/bestvideo+bestaudio/best/bestvideo/bestaudio",
+      "--merge-output-format", "mp4",
+      "--no-playlist",
+      "--no-warnings",
+      "-o", outputPath,
+    ];
+    if (cookiesPath) args.push("--cookies", cookiesPath);
+    if (FFMPEG_PATH) args.push("--ffmpeg-location", FFMPEG_PATH);
+    try {
+      await ytDlp.execPromise(args);
+      console.warn("[yt-dlp] success without proxy — YTDLP_PROXY may be broken or expired");
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      lastError = err instanceof Error ? err : new Error(msg);
+      console.warn(`[yt-dlp] no-proxy fallback also failed: ${msg}`);
     }
   }
 
