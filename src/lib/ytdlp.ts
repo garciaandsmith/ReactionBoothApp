@@ -182,58 +182,77 @@ export async function downloadWithYtDlp(
   const ytDlp = new YTDlpWrap(binaryPath);
   const proxy = process.env.YTDLP_PROXY;
 
+  // Proxy variants to try, in order.
+  //
+  // A blocked or misbehaving proxy makes YouTube return an empty format list
+  // rather than an explicit network error, so yt-dlp reports "Requested format
+  // is not available" even when the format string is perfectly valid.  By
+  // trying a direct connection first we bypass that problem entirely when the
+  // Lambda can reach YouTube without the proxy.  The proxy is kept as a second
+  // pass in case Vercel's outbound IPs are also blocked.
+  //
+  // A third pass without cookies guards against the edge case where expired or
+  // suspicious cookies cause YouTube to serve a restricted (empty) format list
+  // to an otherwise valid request.
+  type ProxyCookieVariant = { proxyValue: string | null; useCookies: boolean };
+  const variants: ProxyCookieVariant[] = [
+    { proxyValue: null,  useCookies: true  }, // 1. direct + cookies   (most likely to work)
+    ...(proxy ? [{ proxyValue: proxy, useCookies: true  }] : []), // 2. proxy + cookies
+    { proxyValue: null,  useCookies: false }, // 3. direct, no cookies  (stale cookie fallback)
+    ...(proxy ? [{ proxyValue: proxy, useCookies: false }] : []), // 4. proxy, no cookies
+  ];
+
+  let attemptNum = 0;
   let lastError: Error | null = null;
+  const totalAttempts = variants.length * PLAYER_CLIENTS.length;
 
-  for (let i = 0; i < PLAYER_CLIENTS.length; i++) {
-    const client: PlayerClient = PLAYER_CLIENTS[i];
-    const args: string[] = [normalisedUrl];
+  for (const { proxyValue, useCookies } of variants) {
+    for (let i = 0; i < PLAYER_CLIENTS.length; i++) {
+      attemptNum++;
+      const client: PlayerClient = PLAYER_CLIENTS[i];
+      const args: string[] = [normalisedUrl];
 
-    // null = use yt-dlp's default client (handles PO tokens automatically).
-    // Any other value = force that specific client.
-    if (client !== null) {
-      args.push("--extractor-args", `youtube:player_client=${client}`);
-    }
-
-    args.push(
-      // Format selector — ordered from best quality to guaranteed fallback.
-      //
-      // When ffmpeg is available (--ffmpeg-location below) yt-dlp can merge
-      // separate DASH video+audio streams, so the first two selectors produce
-      // high-quality output.  When ffmpeg is unavailable or broken on the
-      // current Lambda, the `+` merge selectors are skipped and yt-dlp falls
-      // through to `best` (best pre-merged stream, usually 720 p mp4).
-      //
-      // The final `bestvideo/bestaudio` entries are absolute last resorts so
-      // that yt-dlp always downloads *something*.  The resulting file may lack
-      // an audio or video track; ffmpeg compositing will still run and produce
-      // a partial result rather than failing the entire job with "Requested
-      // format is not available".
-      "-f", "bestvideo[height<=1920]+bestaudio/bestvideo+bestaudio/best/bestvideo/bestaudio",
-      "--merge-output-format", "mp4",
-      "--no-playlist",
-      "--no-warnings",
-      "-o", outputPath,
-    );
-    if (cookiesPath) args.push("--cookies", cookiesPath);
-    if (proxy)       args.push("--proxy", proxy);
-    if (FFMPEG_PATH) args.push("--ffmpeg-location", FFMPEG_PATH);
-
-    const clientLabel = client ?? "default";
-    try {
-      await ytDlp.execPromise(args);
-      return; // success — stop retrying
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (isPermanentError(msg)) {
-        throw new Error(`YouTube video unavailable: ${msg}`);
+      // null = use yt-dlp's default client (handles PO tokens automatically).
+      if (client !== null) {
+        args.push("--extractor-args", `youtube:player_client=${client}`);
       }
-      lastError = err instanceof Error ? err : new Error(msg);
-      console.warn(`[yt-dlp] attempt ${i + 1} failed (client=${clientLabel}): ${msg}`);
-      if (i < PLAYER_CLIENTS.length - 1) {
-        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+
+      args.push(
+        // Format selector — best DASH merge → best combined → video-only/audio-only.
+        // The final bestvideo/bestaudio entries guarantee yt-dlp always finds
+        // *something* when ffmpeg is unavailable and no combined stream exists.
+        "-f", "bestvideo[height<=1920]+bestaudio/bestvideo+bestaudio/best/bestvideo/bestaudio",
+        "--merge-output-format", "mp4",
+        "--no-playlist",
+        "--no-warnings",
+        "-o", outputPath,
+      );
+      if (useCookies && cookiesPath) args.push("--cookies", cookiesPath);
+      if (proxyValue)                args.push("--proxy", proxyValue);
+      if (FFMPEG_PATH)               args.push("--ffmpeg-location", FFMPEG_PATH);
+
+      const clientLabel  = client ?? "default";
+      const proxyLabel   = proxyValue ? "proxy" : "direct";
+      const cookieLabel  = useCookies ? "cookies" : "no-cookies";
+      try {
+        await ytDlp.execPromise(args);
+        return; // success
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (isPermanentError(msg)) {
+          throw new Error(`YouTube video unavailable: ${msg}`);
+        }
+        lastError = err instanceof Error ? err : new Error(msg);
+        console.warn(
+          `[yt-dlp] attempt ${attemptNum}/${totalAttempts} failed` +
+          ` (client=${clientLabel}, ${proxyLabel}, ${cookieLabel}): ${msg}`
+        );
+        if (attemptNum < totalAttempts) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        }
       }
     }
   }
 
-  throw lastError ?? new Error("yt-dlp: all player clients failed");
+  throw lastError ?? new Error("yt-dlp: all attempts failed");
 }
