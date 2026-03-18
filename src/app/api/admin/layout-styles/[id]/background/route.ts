@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import path from "path";
-import fs from "fs/promises";
+import { put } from "@vercel/blob";
 
 export const dynamic = "force-dynamic";
 
-const UPLOAD_DIR = path.join(process.cwd(), "uploads", "backgrounds");
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const VALID_SLOTS = new Set(["pip", "sideBySide", "stacked"]);
 
@@ -25,30 +23,30 @@ export async function POST(
     if (!VALID_SLOTS.has(slot)) {
       return NextResponse.json({ error: "slot must be pip, sideBySide, or stacked" }, { status: 400 });
     }
-    if (!ALLOWED_TYPES.has(file.type)) {
+
+    // Accept common image types; also handle empty type (some browsers omit it)
+    const mimeType = file.type || "image/png";
+    if (file.type && !ALLOWED_TYPES.has(file.type)) {
       return NextResponse.json({ error: "Use PNG, JPEG, or WebP" }, { status: 400 });
     }
 
     const style = await prisma.layoutStyle.findUnique({ where: { id: params.id } });
     if (!style) return NextResponse.json({ error: "Style not found" }, { status: 404 });
 
-    await fs.mkdir(UPLOAD_DIR, { recursive: true });
+    const ext = file.name.split(".").pop()?.toLowerCase() || "png";
+    const blob = await put(
+      `layout-backgrounds/${params.id}-${slot}-${Date.now()}.${ext}`,
+      await file.arrayBuffer(),
+      { access: "public", contentType: mimeType }
+    );
 
-    const ext = file.name.split(".").pop() || "png";
-    const filename = `style-${params.id}-${slot}-${Date.now()}.${ext}`;
-    const filepath = path.join(UPLOAD_DIR, filename);
-    const buffer = Buffer.from(await file.arrayBuffer());
-    await fs.writeFile(filepath, buffer);
-
-    const url = `/api/uploads/backgrounds/${filename}`;
     const field = slot === "pip" ? "bgPip" : slot === "sideBySide" ? "bgSideBySide" : "bgStacked";
-
     await prisma.layoutStyle.update({
       where: { id: params.id },
-      data: { [field]: JSON.stringify({ url, type: file.type }) },
+      data: { [field]: JSON.stringify({ url: blob.url, type: mimeType }) },
     });
 
-    return NextResponse.json({ url, type: file.type, slot });
+    return NextResponse.json({ url: blob.url, type: mimeType, slot });
   } catch (error) {
     console.error("layout background POST error:", error);
     return NextResponse.json({ error: "Upload failed" }, { status: 500 });

@@ -88,33 +88,39 @@ export async function POST(
 
     const plan = reaction.sender?.plan ?? "free";
 
-    // Load YouTube cookies from the admin DB setting; fall back to env var.
-    // The cookies are forwarded to yt-dlp to authenticate requests that
-    // YouTube bot-guards when originating from datacenter IPs.
+    // Load YouTube cookies and the active LayoutStyle in parallel.
     const [cookiesSetting, activeStyle] = await Promise.all([
       prisma.siteSettings.findUnique({ where: { key: "youtube_cookies" } }),
-      // Load the active default LayoutStyle to get background images.
       // TODO: for PRO users, check a per-user style override before falling back to the admin default.
       prisma.layoutStyle.findFirst({ where: { isDefault: true } }),
     ]);
     const cookiesContent = cookiesSetting?.value ?? process.env.YOUTUBE_COOKIES;
 
-    // Map the WatchLayout to the background slot on the active style.
-    // pip-* layouts share the bgPip slot; side-by-side uses bgSideBySide; stacked uses bgStacked.
-    let backgroundImagePath: string | undefined;
+    // Resolve the raw background URL for this layout's slot (download happens below after tempDir).
+    let rawBgUrl: string | undefined;
     if (activeStyle) {
       const rawBg =
-        layout === "stacked"    ? activeStyle.bgStacked :
+        layout === "stacked"      ? activeStyle.bgStacked :
         layout === "side-by-side" ? activeStyle.bgSideBySide :
         activeStyle.bgPip; // all pip-* variants
       if (rawBg) {
-        try {
-          const { url } = JSON.parse(rawBg) as { url: string };
-          const relativePath = url.replace("/api/uploads/", "");
-          backgroundImagePath = join(process.cwd(), "uploads", relativePath);
-        } catch {
-          // Malformed — fall back to brand colour
-        }
+        try { rawBgUrl = (JSON.parse(rawBg) as { url: string }).url; } catch { /* ignore */ }
+      }
+    }
+
+    // Resolve background image to a local path ffmpeg can read.
+    // Vercel Blob URLs (https://…) are downloaded to the temp dir;
+    // legacy /api/uploads/ paths are resolved from the project root.
+    let backgroundImagePath: string | undefined;
+    if (rawBgUrl) {
+      if (rawBgUrl.startsWith("https://")) {
+        const bgExt = rawBgUrl.split(".").pop()?.split("?")[0] || "png";
+        const bgPath = join(tempDir, `bg.${bgExt}`);
+        await downloadToFile(rawBgUrl, bgPath);
+        backgroundImagePath = bgPath;
+      } else {
+        const relativePath = rawBgUrl.replace("/api/uploads/", "");
+        backgroundImagePath = join(process.cwd(), "uploads", relativePath);
       }
     }
 
