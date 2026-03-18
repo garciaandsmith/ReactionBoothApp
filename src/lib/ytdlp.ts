@@ -195,11 +195,20 @@ export async function downloadWithYtDlp(
     }
 
     args.push(
-      // Format selector is ordered from most-preferred to most-permissive:
-      // 1. Best separate streams up to 1920 px tall (covers landscape AND portrait/Shorts).
-      // 2. Any best separate streams (no height cap).
-      // 3. `best` — single best combined stream; always available, last resort.
-      "-f", "bestvideo[height<=1920]+bestaudio/bestvideo+bestaudio/best",
+      // Format selector — ordered from best quality to guaranteed fallback.
+      //
+      // When ffmpeg is available (--ffmpeg-location below) yt-dlp can merge
+      // separate DASH video+audio streams, so the first two selectors produce
+      // high-quality output.  When ffmpeg is unavailable or broken on the
+      // current Lambda, the `+` merge selectors are skipped and yt-dlp falls
+      // through to `best` (best pre-merged stream, usually 720 p mp4).
+      //
+      // The final `bestvideo/bestaudio` entries are absolute last resorts so
+      // that yt-dlp always downloads *something*.  The resulting file may lack
+      // an audio or video track; ffmpeg compositing will still run and produce
+      // a partial result rather than failing the entire job with "Requested
+      // format is not available".
+      "-f", "bestvideo[height<=1920]+bestaudio/bestvideo+bestaudio/best/bestvideo/bestaudio",
       "--merge-output-format", "mp4",
       "--no-playlist",
       "--no-warnings",
