@@ -1,7 +1,21 @@
 import { join } from "path";
 import { tmpdir } from "os";
 import { chmod, stat, unlink, writeFile } from "fs/promises";
+import { existsSync } from "fs";
 import YTDlpWrap from "yt-dlp-wrap";
+
+// Locate the ffmpeg-static binary so yt-dlp can merge DASH streams.
+// Without this, any video that YouTube serves as separate video+audio tracks
+// (the vast majority of HD content) fails with "Requested format is not available".
+const FFMPEG_PATH: string | null = (() => {
+  for (const p of [
+    "/var/task/node_modules/ffmpeg-static/ffmpeg",          // Vercel Lambda
+    join(process.cwd(), "node_modules/ffmpeg-static/ffmpeg"), // local dev
+  ]) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+})();
 
 // Binary is cached in /tmp between warm Lambda invocations.
 const BINARY_PATH = join(tmpdir(), "yt-dlp");
@@ -175,6 +189,7 @@ export async function downloadWithYtDlp(
     ];
     if (cookiesPath) args.push("--cookies", cookiesPath);
     if (proxy)       args.push("--proxy", proxy);
+    if (FFMPEG_PATH) args.push("--ffmpeg-location", FFMPEG_PATH);
 
     try {
       await ytDlp.execPromise(args);

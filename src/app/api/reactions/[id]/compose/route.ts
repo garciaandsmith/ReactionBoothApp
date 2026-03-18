@@ -111,16 +111,21 @@ export async function POST(
     // Resolve background image to a local path ffmpeg can read.
     // Vercel Blob URLs (https://…) are downloaded to the temp dir;
     // legacy /api/uploads/ paths are resolved from the project root.
+    // Errors are non-fatal: fall back to the brand-colour canvas.
     let backgroundImagePath: string | undefined;
     if (rawBgUrl) {
-      if (rawBgUrl.startsWith("https://")) {
-        const bgExt = rawBgUrl.split(".").pop()?.split("?")[0] || "png";
-        const bgPath = join(tempDir, `bg.${bgExt}`);
-        await downloadToFile(rawBgUrl, bgPath);
-        backgroundImagePath = bgPath;
-      } else {
-        const relativePath = rawBgUrl.replace("/api/uploads/", "");
-        backgroundImagePath = join(process.cwd(), "uploads", relativePath);
+      try {
+        if (rawBgUrl.startsWith("https://")) {
+          const bgExt = rawBgUrl.split(".").pop()?.split("?")[0] || "png";
+          const bgPath = join(tempDir, `bg.${bgExt}`);
+          await downloadToFile(rawBgUrl, bgPath);
+          backgroundImagePath = bgPath;
+        } else {
+          const relativePath = rawBgUrl.replace("/api/uploads/", "");
+          backgroundImagePath = join(process.cwd(), "uploads", relativePath);
+        }
+      } catch (err) {
+        console.warn("[compose] Background image unavailable, using brand colour:", err);
       }
     }
 
