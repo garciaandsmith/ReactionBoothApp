@@ -22,7 +22,7 @@ const BINARY_PATH = join(tmpdir(), "yt-dlp");
 // Re-download the binary if the cached copy is older than this threshold.
 // YouTube regularly changes its internal API; an outdated binary produces
 // "Requested format is not available" for every format selector.
-const BINARY_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+const BINARY_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 // Cookies are written here whenever the content changes.
 const COOKIES_PATH = join(tmpdir(), "yt-dlp-cookies.txt");
@@ -135,7 +135,10 @@ function isPermanentError(message: string): boolean {
 // (Proof-of-Origin) tokens through this path; explicitly naming a client
 // bypasses that logic and can cause "Requested format is not available" on
 // videos where YouTube requires a valid PO token.
-const PLAYER_CLIENTS = [null, "tv_embedded,web", "ios", "android"] as const;
+//
+// mweb / web_embedded are tried early because they tend to work from
+// datacenter IPs (Vercel / AWS Lambda) without requiring PO tokens.
+const PLAYER_CLIENTS = [null, "mweb", "web_embedded", "tv_embedded,web", "ios"] as const;
 type PlayerClient = (typeof PLAYER_CLIENTS)[number];
 const RETRY_DELAY_MS = 2_000;
 
