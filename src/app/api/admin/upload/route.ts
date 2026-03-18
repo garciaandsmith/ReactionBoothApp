@@ -52,3 +52,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Upload failed" }, { status: 500 });
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const layout = searchParams.get("layout");
+    if (!layout) {
+      return NextResponse.json({ error: "layout query param is required" }, { status: 400 });
+    }
+
+    const key = `default_bg_${layout}`;
+    await prisma.siteSettings.deleteMany({ where: { key } });
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error("Admin upload DELETE error:", error);
+    return NextResponse.json({ error: "Failed to remove background" }, { status: 500 });
+  }
+}

@@ -91,10 +91,32 @@ export async function POST(
     // Load YouTube cookies from the admin DB setting; fall back to env var.
     // The cookies are forwarded to yt-dlp to authenticate requests that
     // YouTube bot-guards when originating from datacenter IPs.
-    const cookiesSetting = await prisma.siteSettings.findUnique({
-      where: { key: "youtube_cookies" },
-    });
+    const [cookiesSetting, activeStyle] = await Promise.all([
+      prisma.siteSettings.findUnique({ where: { key: "youtube_cookies" } }),
+      // Load the active default LayoutStyle to get background images.
+      // TODO: for PRO users, check a per-user style override before falling back to the admin default.
+      prisma.layoutStyle.findFirst({ where: { isDefault: true } }),
+    ]);
     const cookiesContent = cookiesSetting?.value ?? process.env.YOUTUBE_COOKIES;
+
+    // Map the WatchLayout to the background slot on the active style.
+    // pip-* layouts share the bgPip slot; side-by-side uses bgSideBySide; stacked uses bgStacked.
+    let backgroundImagePath: string | undefined;
+    if (activeStyle) {
+      const rawBg =
+        layout === "stacked"    ? activeStyle.bgStacked :
+        layout === "side-by-side" ? activeStyle.bgSideBySide :
+        activeStyle.bgPip; // all pip-* variants
+      if (rawBg) {
+        try {
+          const { url } = JSON.parse(rawBg) as { url: string };
+          const relativePath = url.replace("/api/uploads/", "");
+          backgroundImagePath = join(process.cwd(), "uploads", relativePath);
+        } catch {
+          // Malformed — fall back to brand colour
+        }
+      }
+    }
 
     await composeReaction({
       webcamPath,
@@ -105,6 +127,7 @@ export async function POST(
       volume,
       cookiesContent,
       closingSlide: plan === "free",
+      backgroundImagePath,
     });
 
     // Upload the composed MP4 to Vercel Blob
