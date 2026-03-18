@@ -128,9 +128,21 @@ function isPermanentError(message: string): boolean {
   ].some((s) => message.toLowerCase().includes(s.toLowerCase()));
 }
 
-// Player clients tried in order.  tv_embedded is least bot-guarded; ios and
-// android bypass most format restrictions; web is the last resort.
-const PLAYER_CLIENTS = ["tv_embedded,web", "ios", "android", "web"] as const;
+// Player clients tried in order.
+//
+// null (first) = omit --extractor-args entirely so yt-dlp uses its own
+// built-in client selection.  Modern yt-dlp (2024 +) auto-negotiates PO
+// (Proof-of-Origin) tokens through this path; explicitly naming a client
+// bypasses that logic and causes "Requested format is not available" on any
+// video where YouTube requires a valid PO token.
+//
+// The remaining entries are fallbacks in case the default selection fails for
+// a particular video.  "mweb" (mobile-web) was added in yt-dlp 2024 and is
+// often the most reliable named client.  "web" is intentionally absent: it
+// requires a PO token that yt-dlp cannot obtain in a server environment, so
+// it always fails when used explicitly.
+const PLAYER_CLIENTS = [null, "ios", "android", "mweb", "tv_embedded,web"] as const;
+type PlayerClient = (typeof PLAYER_CLIENTS)[number];
 const RETRY_DELAY_MS = 2_000;
 
 /**
@@ -173,10 +185,16 @@ export async function downloadWithYtDlp(
   let lastError: Error | null = null;
 
   for (let i = 0; i < PLAYER_CLIENTS.length; i++) {
-    const client = PLAYER_CLIENTS[i];
-    const args: string[] = [
-      normalisedUrl,
-      "--extractor-args", `youtube:player_client=${client}`,
+    const client: PlayerClient = PLAYER_CLIENTS[i];
+    const args: string[] = [normalisedUrl];
+
+    // null = use yt-dlp's default client (handles PO tokens automatically).
+    // Any other value = force that specific client.
+    if (client !== null) {
+      args.push("--extractor-args", `youtube:player_client=${client}`);
+    }
+
+    args.push(
       // Format selector is ordered from most-preferred to most-permissive:
       // 1. Best separate streams up to 1920 px tall (covers landscape AND portrait/Shorts).
       // 2. Any best separate streams (no height cap).
@@ -186,11 +204,12 @@ export async function downloadWithYtDlp(
       "--no-playlist",
       "--no-warnings",
       "-o", outputPath,
-    ];
+    );
     if (cookiesPath) args.push("--cookies", cookiesPath);
     if (proxy)       args.push("--proxy", proxy);
     if (FFMPEG_PATH) args.push("--ffmpeg-location", FFMPEG_PATH);
 
+    const clientLabel = client ?? "default";
     try {
       await ytDlp.execPromise(args);
       return; // success — stop retrying
@@ -200,7 +219,7 @@ export async function downloadWithYtDlp(
         throw new Error(`YouTube video unavailable: ${msg}`);
       }
       lastError = err instanceof Error ? err : new Error(msg);
-      console.warn(`[yt-dlp] attempt ${i + 1} failed (client=${client}): ${msg}`);
+      console.warn(`[yt-dlp] attempt ${i + 1} failed (client=${clientLabel}): ${msg}`);
       if (i < PLAYER_CLIENTS.length - 1) {
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
       }
