@@ -120,6 +120,20 @@ const PLAYER_CLIENTS = ["tv_embedded,web", "ios", "android", "web"] as const;
 const RETRY_DELAY_MS = 2_000;
 
 /**
+ * Normalise a YouTube URL so yt-dlp receives a canonical watch URL.
+ *
+ * YouTube Shorts (youtube.com/shorts/ID) are portrait videos whose height is
+ * typically 1920 px — far above the `height<=1080` guard in the format
+ * selector, which causes every format string to fail.  Converting to the
+ * standard watch URL lets yt-dlp negotiate formats correctly and also avoids
+ * a quirk where some yt-dlp versions mis-detect Shorts as unavailable.
+ */
+function normaliseYouTubeUrl(url: string): string {
+  const m = url.match(/(?:youtube\.com\/shorts\/)([A-Za-z0-9_-]+)/);
+  return m ? `https://www.youtube.com/watch?v=${m[1]}` : url;
+}
+
+/**
  * Download a YouTube video to `outputPath` using yt-dlp.
  *
  * Retries up to four times, rotating through player clients on each attempt.
@@ -138,6 +152,7 @@ export async function downloadWithYtDlp(
     getCookiesPath(cookiesContent),
   ]);
 
+  const normalisedUrl = normaliseYouTubeUrl(videoUrl);
   const ytDlp = new YTDlpWrap(binaryPath);
   const proxy = process.env.YTDLP_PROXY;
 
@@ -146,9 +161,13 @@ export async function downloadWithYtDlp(
   for (let i = 0; i < PLAYER_CLIENTS.length; i++) {
     const client = PLAYER_CLIENTS[i];
     const args: string[] = [
-      videoUrl,
+      normalisedUrl,
       "--extractor-args", `youtube:player_client=${client}`,
-      "-f", "bestvideo[height<=1080]+bestaudio/bestvideo+bestaudio/best/bestvideo/bestaudio",
+      // Format selector is ordered from most-preferred to most-permissive:
+      // 1. Best separate streams up to 1920 px tall (covers landscape AND portrait/Shorts).
+      // 2. Any best separate streams (no height cap).
+      // 3. `b` — single best combined stream; always available, last resort.
+      "-f", "bestvideo[height<=1920]+bestaudio/bestvideo+bestaudio/b",
       "--merge-output-format", "mp4",
       "--no-playlist",
       "--no-warnings",
