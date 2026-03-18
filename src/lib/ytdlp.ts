@@ -56,13 +56,11 @@ async function downloadBinary(): Promise<string> {
  * so we never silently use an outdated binary.
  */
 async function getBinary(): Promise<string> {
-  // If we have a cached ready-promise, verify the binary on disk is still
-  // fresh enough.  If stale, delete it so downloadBinary() fetches the latest.
   if (_binaryReady) {
     try {
       const s = await stat(BINARY_PATH);
       if (Date.now() - s.mtimeMs > BINARY_MAX_AGE_MS) {
-        console.log("[yt-dlp] cached binary is >24 h old — fetching latest release");
+        console.log("[yt-dlp] cached binary is >6 h old — fetching latest release");
         await unlink(BINARY_PATH).catch(() => {});
         _binaryReady = null;
       }
@@ -130,17 +128,34 @@ function isPermanentError(message: string): boolean {
 
 // Player clients tried in order.
 //
-// null (first) = omit --extractor-args entirely so yt-dlp uses its own
-// built-in client selection.  Modern yt-dlp (2024 +) auto-negotiates PO
-// (Proof-of-Origin) tokens through this path; explicitly naming a client
-// bypasses that logic and can cause "Requested format is not available" on
-// videos where YouTube requires a valid PO token.
+// As of yt-dlp 2026.01.31 the following clients were REMOVED and must not be
+// used: tv_embedded, web_embedded, ios_downgraded.
+// The web/web_safari clients trigger SABR streaming on most datacenter IPs,
+// which means format URLs are absent entirely — those clients are useless here.
+// android_vr has been erratic since March 2026 (often returns only 360p).
 //
-// mweb / web_embedded are tried early because they tend to work from
-// datacenter IPs (Vercel / AWS Lambda) without requiring PO tokens.
-const PLAYER_CLIENTS = [null, "mweb", "web_embedded", "tv_embedded,web", "ios"] as const;
+// Current yt-dlp default (null) auto-selects ios+mweb, which is the best
+// starting point.  We then retry with each client individually so that if one
+// sub-client in the pair causes a failure the other gets a standalone chance.
+const PLAYER_CLIENTS = [null, "ios", "mweb"] as const;
 type PlayerClient = (typeof PLAYER_CLIENTS)[number];
 const RETRY_DELAY_MS = 2_000;
+
+// formats=missing_pot: instructs yt-dlp to expose format entries even when
+// they are missing a Proof-of-Origin (PO) token.  Without this flag, mweb
+// formats are silently skipped and the format selector falls through to
+// nothing, producing "Requested format is not available".
+//
+// The stream download may still fail with HTTP 403 on IPs that YouTube has
+// hard-blocked at the network level, but on IPs that are merely rate-limited
+// (or where the IP reputation has recovered) this flag is the difference
+// between success and failure.
+const BASE_EXTRACTOR_ARGS = "youtube:formats=missing_pot";
+
+function buildExtractorArgs(client: PlayerClient): string {
+  if (client === null) return BASE_EXTRACTOR_ARGS;
+  return `youtube:player_client=${client};formats=missing_pot`;
+}
 
 /**
  * Normalise a YouTube URL so yt-dlp receives a canonical watch URL.
@@ -157,10 +172,55 @@ function normaliseYouTubeUrl(url: string): string {
 }
 
 /**
+ * Build the base yt-dlp argument list shared across all attempts.
+ * The caller adds --extractor-args and optionally --proxy on top.
+ */
+function buildBaseArgs(
+  url: string,
+  outputPath: string,
+  cookiesPath: string | null,
+  proxy: string | undefined
+): string[] {
+  const args: string[] = [
+    url,
+    // Format selector — ordered from best quality to guaranteed fallback.
+    //
+    // When ffmpeg is available (--ffmpeg-location below) yt-dlp can merge
+    // separate DASH video+audio streams, so the first two selectors produce
+    // high-quality output.  When ffmpeg is unavailable or broken on the
+    // current Lambda, the `+` merge selectors are skipped and yt-dlp falls
+    // through to `best` (best pre-merged stream, usually 720 p mp4).
+    //
+    // The final `bestvideo/bestaudio` entries are absolute last resorts so
+    // that yt-dlp always downloads *something*.  The resulting file may lack
+    // an audio or video track; ffmpeg compositing will still run and produce
+    // a partial result rather than failing the entire job with "Requested
+    // format is not available".
+    "-f", "bestvideo[height<=1920]+bestaudio/bestvideo+bestaudio/best/bestvideo/bestaudio",
+    "--merge-output-format", "mp4",
+    "--no-playlist",
+    "--no-warnings",
+    "-o", outputPath,
+  ];
+  if (cookiesPath) args.push("--cookies", cookiesPath);
+  if (proxy)       args.push("--proxy", proxy);
+  if (FFMPEG_PATH) args.push("--ffmpeg-location", FFMPEG_PATH);
+  return args;
+}
+
+/**
  * Download a YouTube video to `outputPath` using yt-dlp.
  *
- * Retries up to four times, rotating through player clients on each attempt.
+ * Retries up to three times, rotating through player clients on each attempt.
  * Permanent errors (private / removed videos) are surfaced immediately.
+ *
+ * Root cause of "Requested format is not available" on Vercel/AWS Lambda:
+ *   YouTube blocks datacenter IPs at the network level.  Even with valid
+ *   cookies the IP reputation determines whether format URLs are served.
+ *   The formats=missing_pot extractor arg forces yt-dlp to expose mweb
+ *   formats that would otherwise be silently dropped due to a missing
+ *   Proof-of-Origin token.  For a reliable fix, set YTDLP_PROXY to a
+ *   residential proxy endpoint.
  *
  * @param cookiesContent  Netscape-format cookie file content, sourced from
  *   the admin DB setting.  Falls back to YOUTUBE_COOKIES env var if omitted.
@@ -183,39 +243,11 @@ export async function downloadWithYtDlp(
 
   for (let i = 0; i < PLAYER_CLIENTS.length; i++) {
     const client: PlayerClient = PLAYER_CLIENTS[i];
-    const args: string[] = [normalisedUrl];
+    const clientLabel = client ?? "default(ios+mweb)";
 
-    // null = use yt-dlp's default client (handles PO tokens automatically).
-    // Any other value = force that specific client.
-    if (client !== null) {
-      args.push("--extractor-args", `youtube:player_client=${client}`);
-    }
+    const args = buildBaseArgs(normalisedUrl, outputPath, cookiesPath, proxy);
+    args.push("--extractor-args", buildExtractorArgs(client));
 
-    args.push(
-      // Format selector — ordered from best quality to guaranteed fallback.
-      //
-      // When ffmpeg is available (--ffmpeg-location below) yt-dlp can merge
-      // separate DASH video+audio streams, so the first two selectors produce
-      // high-quality output.  When ffmpeg is unavailable or broken on the
-      // current Lambda, the `+` merge selectors are skipped and yt-dlp falls
-      // through to `best` (best pre-merged stream, usually 720 p mp4).
-      //
-      // The final `bestvideo/bestaudio` entries are absolute last resorts so
-      // that yt-dlp always downloads *something*.  The resulting file may lack
-      // an audio or video track; ffmpeg compositing will still run and produce
-      // a partial result rather than failing the entire job with "Requested
-      // format is not available".
-      "-f", "bestvideo[height<=1920]+bestaudio/bestvideo+bestaudio/best/bestvideo/bestaudio",
-      "--merge-output-format", "mp4",
-      "--no-playlist",
-      "--no-warnings",
-      "-o", outputPath,
-    );
-    if (cookiesPath) args.push("--cookies", cookiesPath);
-    if (proxy)       args.push("--proxy", proxy);
-    if (FFMPEG_PATH) args.push("--ffmpeg-location", FFMPEG_PATH);
-
-    const clientLabel = client ?? "default";
     try {
       await ytDlp.execPromise(args);
       return; // success — stop retrying
@@ -232,22 +264,14 @@ export async function downloadWithYtDlp(
     }
   }
 
-  // If a proxy was used and all attempts failed, try once more without it.
-  // A broken/expired YTDLP_PROXY is the most common cause of "Requested format
-  // is not available" across ALL player clients — the proxy intercepts YouTube
-  // API responses and returns something yt-dlp can't parse into a format list.
+  // If a proxy was configured and all attempts failed, try once more without
+  // it.  A broken/expired YTDLP_PROXY is a common cause of failure across all
+  // player clients — the proxy may intercept YouTube API responses and return
+  // something yt-dlp can't parse into a format list.
   if (proxy) {
     console.warn("[yt-dlp] all proxy attempts failed — retrying without proxy");
-    const args: string[] = [
-      normalisedUrl,
-      "-f", "bestvideo[height<=1920]+bestaudio/bestvideo+bestaudio/best/bestvideo/bestaudio",
-      "--merge-output-format", "mp4",
-      "--no-playlist",
-      "--no-warnings",
-      "-o", outputPath,
-    ];
-    if (cookiesPath) args.push("--cookies", cookiesPath);
-    if (FFMPEG_PATH) args.push("--ffmpeg-location", FFMPEG_PATH);
+    const args = buildBaseArgs(normalisedUrl, outputPath, cookiesPath, undefined);
+    args.push("--extractor-args", BASE_EXTRACTOR_ARGS);
     try {
       await ytDlp.execPromise(args);
       console.warn("[yt-dlp] success without proxy — YTDLP_PROXY may be broken or expired");
