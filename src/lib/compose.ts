@@ -37,6 +37,13 @@ interface ComposeOptions {
   cookiesContent?: string;
   /** Append a 3-second off-white closing slide (for free-tier users). */
   closingSlide?: boolean;
+  /**
+   * Absolute path to a local image file used as the canvas background.
+   * When omitted, the brand teal colour fill is used instead.
+   * Corresponds to the admin-set `default_bg_{layout}` SiteSettings value.
+   * In the future this may also be overridden per-user for PRO plans.
+   */
+  backgroundImagePath?: string;
 }
 
 interface TimelineSegment {
@@ -122,7 +129,8 @@ function buildFilterGraph(
   layout: WatchLayout,
   totalDurationS: number,
   volume: ComposeVolumeSettings,
-  closingSlide: boolean
+  closingSlide: boolean,
+  hasBackgroundImage: boolean
 ): string {
   const filters: string[] = [];
   const segLabels: string[] = [];
@@ -177,13 +185,24 @@ function buildFilterGraph(
   // Video compositing — brand color canvas + precise overlay placement
   const dur = totalDurationS.toFixed(3);
 
+  // bgInput is the ffmpeg input index for the background image (when used).
+  // [0:v] = YouTube, [1:v] = webcam, [2:v] = background image (optional).
+  const bgIdx = 2;
+
+  function canvasFilter(w: number, h: number): string {
+    if (hasBackgroundImage) {
+      return `[${bgIdx}:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}[canvas]`;
+    }
+    return `color=c=${BRAND_HEX}:s=${w}x${h}:d=${dur}[canvas]`;
+  }
+
   if (layout.startsWith("pip-") && layout !== "pip-cam-bottom-right") {
     // Standard PIP: YT is large main, webcam is small PIP
     const { x: mx, y: my, w: mw, h: mh } = PIP_MAIN;
     const { w: pw, h: ph } = PIP_SMALL;
     filters.push(`[ytv]scale=${mw}:${mh}:force_original_aspect_ratio=increase,crop=${mw}:${mh}[yt_s]`);
     filters.push(`[1:v]scale=${pw}:${ph}:force_original_aspect_ratio=increase,crop=${pw}:${ph}[wc_s]`);
-    filters.push(`color=c=${BRAND_HEX}:s=1920x1080:d=${dur}[canvas]`);
+    filters.push(canvasFilter(1920, 1080));
     filters.push(`[canvas][yt_s]overlay=${mx}:${my}[with_yt]`);
 
     // PIP position (webcam): corners align with main video edges (not canvas edges)
@@ -207,14 +226,14 @@ function buildFilterGraph(
     const mainB = my + mh; // 1052
     filters.push(`[1:v]scale=${mw}:${mh}:force_original_aspect_ratio=increase,crop=${mw}:${mh}[wc_s]`);
     filters.push(`[ytv]scale=${pw}:${ph}:force_original_aspect_ratio=increase,crop=${pw}:${ph}[yt_s]`);
-    filters.push(`color=c=${BRAND_HEX}:s=1920x1080:d=${dur}[canvas]`);
+    filters.push(canvasFilter(1920, 1080));
     filters.push(`[canvas][wc_s]overlay=${mx}:${my}[with_wc]`);
     filters.push(`[with_wc][yt_s]overlay=${mainR - pw}:${mainB - ph}[outv]`);
 
   } else if (layout === "side-by-side") {
     filters.push(`[ytv]scale=930:540:force_original_aspect_ratio=increase,crop=930:540[yt_s]`);
     filters.push(`[1:v]scale=930:540:force_original_aspect_ratio=increase,crop=930:540[wc_s]`);
-    filters.push(`color=c=${BRAND_HEX}:s=1920x1080:d=${dur}[canvas]`);
+    filters.push(canvasFilter(1920, 1080));
     filters.push(`[canvas][yt_s]overlay=0:270[with_yt]`);
     filters.push(`[with_yt][wc_s]overlay=990:270[outv]`);
 
@@ -222,7 +241,7 @@ function buildFilterGraph(
     // stacked (portrait 1080×1920)
     filters.push(`[ytv]scale=1080:920:force_original_aspect_ratio=increase,crop=1080:920[yt_s]`);
     filters.push(`[1:v]scale=1080:920:force_original_aspect_ratio=increase,crop=1080:920[wc_s]`);
-    filters.push(`color=c=${BRAND_HEX}:s=1080x1920:d=${dur}[canvas]`);
+    filters.push(canvasFilter(1080, 1920));
     filters.push(`[canvas][yt_s]overlay=0:0[with_yt]`);
     filters.push(`[with_yt][wc_s]overlay=0:1000[outv]`);
   }
@@ -250,6 +269,7 @@ export async function composeReaction(options: ComposeOptions): Promise<void> {
     volume = { youtubeVolume: 100, webcamVolume: 100 },
     cookiesContent,
     closingSlide = false,
+    backgroundImagePath,
   } = options;
 
   if (!ffmpegPath) throw new Error("ffmpeg-static binary not found");
@@ -268,12 +288,18 @@ export async function composeReaction(options: ComposeOptions): Promise<void> {
 
   try {
     await downloadYouTube(eventsLog.videoUrl, ytPath, cookiesContent);
-    const filterGraph = buildFilterGraph(segments, layout, totalDurationS, volume, closingSlide);
+    const filterGraph = buildFilterGraph(segments, layout, totalDurationS, volume, closingSlide, !!backgroundImagePath);
+
+    // Build input list: YT video, webcam, and optionally the background image.
+    // -loop 1 causes ffmpeg to repeat the static image for the full duration.
+    const inputArgs: string[] = ["-i", ytPath, "-i", webcamPath];
+    if (backgroundImagePath) {
+      inputArgs.push("-loop", "1", "-i", backgroundImagePath);
+    }
 
     await execFileAsync(ffmpegPath, [
       "-y",
-      "-i", ytPath,
-      "-i", webcamPath,
+      ...inputArgs,
       "-filter_complex", filterGraph,
       "-map", videoMap,
       "-map", audioMap,

@@ -91,10 +91,26 @@ export async function POST(
     // Load YouTube cookies from the admin DB setting; fall back to env var.
     // The cookies are forwarded to yt-dlp to authenticate requests that
     // YouTube bot-guards when originating from datacenter IPs.
-    const cookiesSetting = await prisma.siteSettings.findUnique({
-      where: { key: "youtube_cookies" },
-    });
+    const [cookiesSetting, bgSetting] = await Promise.all([
+      prisma.siteSettings.findUnique({ where: { key: "youtube_cookies" } }),
+      // Admin-set default background image for this layout.
+      // TODO: for PRO users, check a per-user override first before falling back here.
+      prisma.siteSettings.findUnique({ where: { key: `default_bg_${layout}` } }),
+    ]);
     const cookiesContent = cookiesSetting?.value ?? process.env.YOUTUBE_COOKIES;
+
+    // Resolve background image to a local file path (images are stored locally).
+    let backgroundImagePath: string | undefined;
+    if (bgSetting?.value) {
+      try {
+        const { url } = JSON.parse(bgSetting.value) as { url: string };
+        // url is like /api/uploads/backgrounds/bg-{layout}-{ts}.{ext}
+        const relativePath = url.replace("/api/uploads/", "");
+        backgroundImagePath = join(process.cwd(), "uploads", relativePath);
+      } catch {
+        // Malformed setting — ignore and fall back to brand colour
+      }
+    }
 
     await composeReaction({
       webcamPath,
@@ -105,6 +121,7 @@ export async function POST(
       volume,
       cookiesContent,
       closingSlide: plan === "free",
+      backgroundImagePath,
     });
 
     // Upload the composed MP4 to Vercel Blob

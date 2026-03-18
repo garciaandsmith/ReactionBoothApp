@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { LAYOUTS } from "@/lib/constants";
+import type { WatchLayout } from "@/lib/types";
 
 function cookieAge(updatedAt: string | null): {
   label: string;
@@ -12,6 +14,8 @@ function cookieAge(updatedAt: string | null): {
   if (days < 28) return { label: `Updated ${Math.floor(days)}d ago — refresh soon`, color: "amber" };
   return { label: `Updated ${Math.floor(days)}d ago — overdue`, color: "red" };
 }
+
+type BgImage = { url: string; type: string } | null;
 
 export default function AdminSettingsPage() {
   const [maintenanceMode, setMaintenanceMode] = useState<boolean | null>(null);
@@ -25,6 +29,13 @@ export default function AdminSettingsPage() {
   const [cookiesSaving, setCookiesSaving] = useState(false);
   const [cookiesMessage, setCookiesMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  // Background images state
+  const [backgrounds, setBackgrounds] = useState<Record<string, BgImage>>({});
+  const [bgUploading, setBgUploading] = useState<Record<string, boolean>>({});
+  const [bgRemoving, setBgRemoving] = useState<Record<string, boolean>>({});
+  const [bgMessages, setBgMessages] = useState<Record<string, { type: "success" | "error"; text: string }>>({});
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
   useEffect(() => {
     fetch("/api/admin/settings")
       .then((r) => r.json())
@@ -32,6 +43,18 @@ export default function AdminSettingsPage() {
         setMaintenanceMode(settings["maintenance_mode"] === "true");
         setCookiesSet(!!settings["youtube_cookies"]);
         setCookiesUpdatedAt(settings["youtube_cookies_updated_at"] ?? null);
+
+        // Parse background images for each layout
+        const bgs: Record<string, BgImage> = {};
+        for (const layout of Object.keys(LAYOUTS)) {
+          const raw = settings[`default_bg_${layout}`];
+          if (raw) {
+            try { bgs[layout] = JSON.parse(raw); } catch { bgs[layout] = null; }
+          } else {
+            bgs[layout] = null;
+          }
+        }
+        setBackgrounds(bgs);
       })
       .catch(() => setMaintenanceMode(false));
   }, []);
@@ -90,6 +113,44 @@ export default function AdminSettingsPage() {
       setCookiesMessage({ type: "error", text: "Failed to save cookies. Try again." });
     } finally {
       setCookiesSaving(false);
+    }
+  }
+
+  async function uploadBackground(layout: WatchLayout, file: File) {
+    setBgUploading((prev) => ({ ...prev, [layout]: true }));
+    setBgMessages((prev) => { const n = { ...prev }; delete n[layout]; return n; });
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("layout", layout);
+      const res = await fetch("/api/admin/upload", { method: "POST", body: form });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? "Upload failed");
+      }
+      const data: { url: string; type: string } = await res.json();
+      setBackgrounds((prev) => ({ ...prev, [layout]: { url: data.url, type: data.type } }));
+      setBgMessages((prev) => ({ ...prev, [layout]: { type: "success", text: "Background updated." } }));
+    } catch (err) {
+      setBgMessages((prev) => ({ ...prev, [layout]: { type: "error", text: err instanceof Error ? err.message : "Upload failed." } }));
+    } finally {
+      setBgUploading((prev) => ({ ...prev, [layout]: false }));
+      if (fileInputRefs.current[layout]) fileInputRefs.current[layout]!.value = "";
+    }
+  }
+
+  async function removeBackground(layout: WatchLayout) {
+    setBgRemoving((prev) => ({ ...prev, [layout]: true }));
+    setBgMessages((prev) => { const n = { ...prev }; delete n[layout]; return n; });
+    try {
+      const res = await fetch(`/api/admin/upload?layout=${encodeURIComponent(layout)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Remove failed");
+      setBackgrounds((prev) => ({ ...prev, [layout]: null }));
+      setBgMessages((prev) => ({ ...prev, [layout]: { type: "success", text: "Background removed." } }));
+    } catch {
+      setBgMessages((prev) => ({ ...prev, [layout]: { type: "error", text: "Failed to remove background." } }));
+    } finally {
+      setBgRemoving((prev) => ({ ...prev, [layout]: false }));
     }
   }
 
@@ -244,6 +305,101 @@ export default function AdminSettingsPage() {
               {cookiesMessage.text}
             </div>
           )}
+        </div>
+
+        {/* Default Background Images Card */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+              <h2 className="text-lg font-semibold text-gray-900">Default Background Images</h2>
+            </div>
+            <p className="text-sm text-gray-500 max-w-lg">
+              PNG or JPEG used as the canvas background in exported videos for each layout. When no image is set, the brand teal colour is used instead.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {(Object.entries(LAYOUTS) as [WatchLayout, string][]).map(([layout, label]) => {
+              const bg = backgrounds[layout] ?? null;
+              const uploading = bgUploading[layout] ?? false;
+              const removing = bgRemoving[layout] ?? false;
+              const msg = bgMessages[layout] ?? null;
+              const busy = uploading || removing;
+
+              return (
+                <div key={layout} className="border border-gray-200 rounded-xl overflow-hidden">
+                  {/* Preview area */}
+                  <div className="h-28 bg-gray-100 flex items-center justify-center relative">
+                    {bg ? (
+                      <img
+                        src={bg.url}
+                        alt={`${label} background`}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div
+                        className="w-full h-full flex items-center justify-center"
+                        style={{ backgroundColor: "#2EE6A6" }}
+                      >
+                        <span className="text-xs text-white/70 font-medium">Brand colour</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Controls */}
+                  <div className="p-3 space-y-2">
+                    <p className="text-xs font-semibold text-gray-700 truncate">{label}</p>
+                    <p className="text-xs text-gray-400 font-mono truncate">{layout}</p>
+
+                    <div className="flex gap-2 pt-1">
+                      <label className={`flex-1 text-center px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
+                        busy
+                          ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                          : "bg-brand text-soft-black hover:bg-brand-600"
+                      }`}>
+                        {uploading ? "Uploading…" : bg ? "Replace" : "Upload PNG"}
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          disabled={busy}
+                          ref={(el) => { fileInputRefs.current[layout] = el; }}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) uploadBackground(layout, file);
+                          }}
+                        />
+                      </label>
+
+                      {bg && (
+                        <button
+                          onClick={() => removeBackground(layout)}
+                          disabled={busy}
+                          title="Remove background"
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-600 hover:bg-red-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          {removing ? "…" : "Remove"}
+                        </button>
+                      )}
+                    </div>
+
+                    {msg && (
+                      <p className={`text-xs px-2 py-1 rounded-lg ${
+                        msg.type === "success" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"
+                      }`}>
+                        {msg.text}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
