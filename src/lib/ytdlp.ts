@@ -126,30 +126,33 @@ function isPermanentError(message: string): boolean {
   ].some((s) => message.toLowerCase().includes(s.toLowerCase()));
 }
 
-// Player clients tried in order.
+// Player clients tried in order — tuned for datacenter IPs (Vercel/AWS Lambda).
 //
-// As of yt-dlp 2026.01.31 the following clients were REMOVED and must not be
-// used: tv_embedded, web_embedded, ios_downgraded.
-// The web/web_safari clients trigger SABR streaming on most datacenter IPs,
-// which means format URLs are absent entirely — those clients are useless here.
-// android_vr has been erratic since March 2026 (often returns only 360p).
+// Client landscape as of early 2026:
 //
-// Current yt-dlp default (null) auto-selects ios+mweb, which is the best
-// starting point.  We then retry with each client individually so that if one
-// sub-client in the pair causes a failure the other gets a standalone chance.
-const PLAYER_CLIENTS = [null, "ios", "mweb"] as const;
+//   REMOVED in yt-dlp 2026.01.31: tv_embedded, web_embedded, ios_downgraded.
+//   SABR-only (no direct download URLs) since Oct 2025: web, web_safari, mweb,
+//     web_creator — these clients no longer return usable format URLs from
+//     datacenter IPs; switching to them makes things worse, not better.
+//
+//   android_vr  — best for datacenter IPs: no PO token required, still
+//                 returns direct format URLs.  yt-dlp's own default when no
+//                 JS runtime is present.  Occasionally erratic (March 2026)
+//                 but still the strongest option.
+//   tv_downgraded — second-best; works well with cookies for logged-in
+//                   accounts, tolerates datacenter IPs better than web clients.
+//   null (auto)  — yt-dlp picks the best available client for the environment.
+//                  Useful as a first-pass attempt.
+//   ios          — partial; fewer format restrictions than web clients.
+//   mweb         — last resort only; mostly SABR-only now.
+const PLAYER_CLIENTS = ["android_vr", "tv_downgraded", null, "ios", "mweb"] as const;
 type PlayerClient = (typeof PLAYER_CLIENTS)[number];
 const RETRY_DELAY_MS = 2_000;
 
 // formats=missing_pot: instructs yt-dlp to expose format entries even when
-// they are missing a Proof-of-Origin (PO) token.  Without this flag, mweb
-// formats are silently skipped and the format selector falls through to
-// nothing, producing "Requested format is not available".
-//
-// The stream download may still fail with HTTP 403 on IPs that YouTube has
-// hard-blocked at the network level, but on IPs that are merely rate-limited
-// (or where the IP reputation has recovered) this flag is the difference
-// between success and failure.
+// they are missing a Proof-of-Origin (PO) token.  Primarily relevant for
+// the mweb client; has little effect on android_vr/tv_downgraded which do
+// not require PO tokens.  Kept as a global flag as it never causes harm.
 const BASE_EXTRACTOR_ARGS = "youtube:formats=missing_pot";
 
 function buildExtractorArgs(client: PlayerClient): string {
