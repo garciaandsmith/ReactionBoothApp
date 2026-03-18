@@ -180,8 +180,8 @@ export async function downloadWithYtDlp(
       // Format selector is ordered from most-preferred to most-permissive:
       // 1. Best separate streams up to 1920 px tall (covers landscape AND portrait/Shorts).
       // 2. Any best separate streams (no height cap).
-      // 3. `b` — single best combined stream; always available, last resort.
-      "-f", "bestvideo[height<=1920]+bestaudio/bestvideo+bestaudio/b",
+      // 3. `best` — single best combined stream; always available, last resort.
+      "-f", "bestvideo[height<=1920]+bestaudio/bestvideo+bestaudio/best",
       "--merge-output-format", "mp4",
       "--no-playlist",
       "--no-warnings",
