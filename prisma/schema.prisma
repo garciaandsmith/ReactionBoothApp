@@ -83,6 +83,23 @@ model SiteSettings {
   updatedAt DateTime @updatedAt
 }
 
+// Named visual styles that supply canvas background images for each export layout type.
+// One style is flagged isDefault=true and is used in all video composition.
+model LayoutStyle {
+  id           String   @id @default(cuid())
+  name         String
+  isDefault    Boolean  @default(false)
+  // JSON-encoded { url: string, type: string } for each layout canvas slot.
+  // bgPip       → used by all pip-* layouts         (1920×1080)
+  // bgSideBySide→ used by side-by-side layout        (1920×1080)
+  // bgStacked   → used by stacked (portrait) layout  (1080×1920)
+  bgPip        String?
+  bgSideBySide String?
+  bgStacked    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 model Reaction {
   id              String   @id @default(cuid())
   videoUrl        String   // YouTube URL
