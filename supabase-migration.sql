@@ -134,6 +134,25 @@ CREATE TABLE IF NOT EXISTS "Reaction" (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "Reaction_boothToken_key" ON "Reaction"("boothToken");
 
+-- ─── Layout Styles ────────────────────────────────────────────────────────────
+-- Named visual themes for video export. One row carries isDefault=TRUE and is
+-- used in all video composition. Each style holds three background image slots:
+--   bgPip        → all PiP layouts          (1920 × 1080)
+--   bgSideBySide → side-by-side layout      (1920 × 1080)
+--   bgStacked    → stacked portrait layout  (1080 × 1920)
+-- When a slot is NULL the brand teal colour fill is used instead.
+CREATE TABLE IF NOT EXISTS "LayoutStyle" (
+  "id"           TEXT        NOT NULL,
+  "name"         TEXT        NOT NULL,
+  "isDefault"    BOOLEAN     NOT NULL DEFAULT FALSE,
+  "bgPip"        TEXT,
+  "bgSideBySide" TEXT,
+  "bgStacked"    TEXT,
+  "createdAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updatedAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT "LayoutStyle_pkey" PRIMARY KEY ("id")
+);
+
 -- ─── Prisma migrations tracking table ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
   "id"                    TEXT        NOT NULL,
