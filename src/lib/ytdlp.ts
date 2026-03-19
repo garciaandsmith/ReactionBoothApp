@@ -168,8 +168,6 @@ const RETRY_DELAY_MS = 2_000;
 // silently drops formats that lack a POT, leaving an empty format list and
 // causing "Requested format is not available" even when YouTube did return
 // format metadata.  Applies globally — it never causes harm.
-const BASE_EXTRACTOR_ARGS = "youtube:formats=missing_pot";
-
 function buildExtractorArgs(client: PlayerClient, poToken?: string): string {
   const parts: string[] = [];
   if (client !== null) parts.push(`player_client=${client}`);
