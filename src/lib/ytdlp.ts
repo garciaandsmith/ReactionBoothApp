@@ -170,10 +170,15 @@ const RETRY_DELAY_MS = 2_000;
 // format metadata.  Applies globally — it never causes harm.
 const BASE_EXTRACTOR_ARGS = "youtube:formats=missing_pot";
 
-function buildExtractorArgs(client: PlayerClient): string {
-  if (client === null) return BASE_EXTRACTOR_ARGS;
-  // Multi-client strings (e.g. "web,android_vr") are passed as-is.
-  return `youtube:player_client=${client};formats=missing_pot`;
+function buildExtractorArgs(client: PlayerClient, poToken?: string): string {
+  const parts: string[] = [];
+  if (client !== null) parts.push(`player_client=${client}`);
+  // po_token=web+TOKEN instructs yt-dlp to use TOKEN only for the web client,
+  // which is the only client for which a manually-supplied POT is valid.
+  // Passing it for non-web clients is harmless.
+  if (poToken) parts.push(`po_token=web+${poToken}`);
+  parts.push("formats=missing_pot");
+  return `youtube:${parts.join(";")}`;
 }
 
 /**
@@ -228,22 +233,20 @@ function buildBaseArgs(
 }
 
 /**
- * Download a YouTube video to `outputPath` using yt-dlp.
- *
- * Retries up to three times, rotating through player clients on each attempt.
- * Permanent errors (private / removed videos) are surfaced immediately.
- *
- * Root cause of "Requested format is not available" on Vercel/AWS Lambda:
- *   YouTube blocks datacenter IPs at the network level.  Even with valid
- *   cookies the IP reputation determines whether format URLs are served.
- *   The formats=missing_pot extractor arg forces yt-dlp to expose mweb
- *   formats that would otherwise be silently dropped due to a missing
- *   Proof-of-Origin token.  For a reliable fix, set YTDLP_PROXY to a
- *   residential proxy endpoint.
- *
- * @param cookiesContent  Netscape-format cookie file content, sourced from
- *   the admin DB setting.  Falls back to YOUTUBE_COOKIES env var if omitted.
+ * Extract a short, human-readable error from raw yt-dlp stderr output.
+ * The raw message contains hundreds of [debug] lines; we surface only the
+ * first `ERROR:` line, which is the actual failure reason.
  */
+function extractCleanError(raw: string): string {
+  const m = raw.match(/^ERROR:\s+(.+)$/m);
+  if (m) return m[1].trim();
+  // Fallback: first non-debug, non-blank line
+  const fallback = raw.split("\n").find(
+    (l) => l.trim() && !l.startsWith("[debug]") && !l.startsWith("Error code:") && !l.startsWith("Stderr:")
+  );
+  return fallback?.trim() ?? "yt-dlp download failed";
+}
+
 /**
  * Run yt-dlp with the given args, buffering all output lines.
  * On failure, throws an Error whose message includes the full stderr/stdout
@@ -278,11 +281,32 @@ function execWithFullLogs(ytDlp: YTDlpWrap, args: string[]): Promise<void> {
   });
 }
 
+/**
+ * Download a YouTube video to `outputPath` using yt-dlp.
+ *
+ * Rotates through player clients on failure. Permanent errors (private /
+ * removed videos) are surfaced immediately without retrying.
+ *
+ * Root cause of "Requested format is not available" on Vercel/AWS Lambda:
+ *   YouTube requires a PO (Proof-of-Origin) Token from datacenter IPs.
+ *   Without a JS runtime yt-dlp cannot compute one automatically.
+ *   Supply poToken (from the admin `ytdlp_po_token` setting) to unblock.
+ *   For a fully automatic long-term fix, set YTDLP_PROXY to a residential
+ *   proxy endpoint.
+ *
+ * @param cookiesContent  Netscape-format cookie file content.
+ * @param poToken         YouTube PO Token for the web client, obtained from
+ *   browser DevTools (see yt-dlp wiki/PO-Token-Guide).  Stored in the admin
+ *   DB setting `ytdlp_po_token`.  Falls back to YTDLP_PO_TOKEN env var.
+ */
 export async function downloadWithYtDlp(
   videoUrl: string,
   outputPath: string,
-  cookiesContent?: string
+  cookiesContent?: string,
+  poToken?: string
 ): Promise<void> {
+  const resolvedPoToken = poToken ?? process.env.YTDLP_PO_TOKEN;
+
   const [binaryPath, cookiesPath] = await Promise.all([
     getBinary(),
     getCookiesPath(cookiesContent),
@@ -296,6 +320,7 @@ export async function downloadWithYtDlp(
   console.log(
     `[yt-dlp] starting download url=${normalisedUrl} ` +
     `cookies=${cookiesPath ? `yes (${cookiesContent?.length ?? 0} chars)` : "NO"} ` +
+    `pot=${resolvedPoToken ? "yes" : "NO"} ` +
     `proxy=${proxy ? "yes" : "NO"} ` +
     `ffmpeg=${FFMPEG_PATH ?? "NOT FOUND"}`
   );
@@ -307,7 +332,7 @@ export async function downloadWithYtDlp(
     const clientLabel = client ?? "default(auto)";
 
     const args = buildBaseArgs(normalisedUrl, outputPath, cookiesPath, proxy);
-    args.push("--extractor-args", buildExtractorArgs(client));
+    args.push("--extractor-args", buildExtractorArgs(client, resolvedPoToken));
 
     try {
       await execWithFullLogs(ytDlp, args);
@@ -332,7 +357,7 @@ export async function downloadWithYtDlp(
   if (proxy) {
     console.warn("[yt-dlp] all proxy attempts failed — retrying without proxy");
     const args = buildBaseArgs(normalisedUrl, outputPath, cookiesPath, undefined);
-    args.push("--extractor-args", BASE_EXTRACTOR_ARGS);
+    args.push("--extractor-args", buildExtractorArgs(null, resolvedPoToken));
     try {
       await execWithFullLogs(ytDlp, args);
       console.warn("[yt-dlp] success without proxy — YTDLP_PROXY may be broken or expired");
@@ -344,5 +369,11 @@ export async function downloadWithYtDlp(
     }
   }
 
-  throw lastError ?? new Error("yt-dlp: all player clients failed");
+  // Surface a clean, actionable error rather than the full verbose debug dump.
+  const rawMsg = lastError?.message ?? "";
+  const cleanReason = extractCleanError(rawMsg);
+  const hint = !resolvedPoToken
+    ? " Set a PO Token in Admin → Settings (ytdlp_po_token) or configure YTDLP_PROXY."
+    : " The configured PO Token may have expired — refresh it in Admin → Settings.";
+  throw new Error(`YouTube download failed: ${cleanReason}.${hint}`);
 }

@@ -88,13 +88,15 @@ export async function POST(
 
     const plan = reaction.sender?.plan ?? "free";
 
-    // Load YouTube cookies and the active LayoutStyle in parallel.
-    const [cookiesSetting, activeStyle] = await Promise.all([
+    // Load YouTube cookies, PO Token, and the active LayoutStyle in parallel.
+    const [cookiesSetting, poTokenSetting, activeStyle] = await Promise.all([
       prisma.siteSettings.findUnique({ where: { key: "youtube_cookies" } }),
+      prisma.siteSettings.findUnique({ where: { key: "ytdlp_po_token" } }),
       // TODO: for PRO users, check a per-user style override before falling back to the admin default.
       prisma.layoutStyle.findFirst({ where: { isDefault: true } }),
     ]);
     const cookiesContent = cookiesSetting?.value ?? process.env.YOUTUBE_COOKIES;
+    const poToken = poTokenSetting?.value ?? process.env.YTDLP_PO_TOKEN;
 
     // Resolve the raw background URL for this layout's slot (download happens below after tempDir).
     let rawBgUrl: string | undefined;
@@ -137,6 +139,7 @@ export async function POST(
       watermark: plan === "free",
       volume,
       cookiesContent,
+      poToken: poToken ?? undefined,
       closingSlide: plan === "free",
       backgroundImagePath,
     });
