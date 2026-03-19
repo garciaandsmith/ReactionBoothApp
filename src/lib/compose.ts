@@ -35,6 +35,8 @@ interface ComposeOptions {
   volume?: ComposeVolumeSettings;
   /** Netscape-format cookie content from the admin DB setting. */
   cookiesContent?: string;
+  /** YouTube PO Token for the web client (admin `ytdlp_po_token` setting). */
+  poToken?: string;
   /** Append a 3-second off-white closing slide (for free-tier users). */
   closingSlide?: boolean;
   /**
@@ -65,9 +67,10 @@ const PIP_SMALL = { w: 550, h: 310 };
 export async function downloadYouTube(
   videoUrl: string,
   outputPath: string,
-  cookiesContent?: string
+  cookiesContent?: string,
+  poToken?: string
 ): Promise<void> {
-  await downloadWithYtDlp(videoUrl, outputPath, cookiesContent);
+  await downloadWithYtDlp(videoUrl, outputPath, cookiesContent, poToken);
 }
 
 function buildTimeline(events: ReactionEventLog): TimelineSegment[] {
@@ -270,6 +273,7 @@ export async function composeReaction(options: ComposeOptions): Promise<void> {
     cookiesContent,
     closingSlide = false,
     backgroundImagePath,
+    poToken,
   } = options;
 
   if (!ffmpegPath) throw new Error("ffmpeg-static binary not found");
@@ -287,7 +291,7 @@ export async function composeReaction(options: ComposeOptions): Promise<void> {
   const encodeDuration = closingSlide ? totalDurationS + 3 : totalDurationS;
 
   try {
-    await downloadYouTube(eventsLog.videoUrl, ytPath, cookiesContent);
+    await downloadYouTube(eventsLog.videoUrl, ytPath, cookiesContent, poToken);
     const filterGraph = buildFilterGraph(segments, layout, totalDurationS, volume, closingSlide, !!backgroundImagePath);
 
     // Build input list: YT video, webcam, and optionally the background image.
