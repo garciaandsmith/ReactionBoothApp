@@ -228,6 +228,40 @@ function buildBaseArgs(
  * @param cookiesContent  Netscape-format cookie file content, sourced from
  *   the admin DB setting.  Falls back to YOUTUBE_COOKIES env var if omitted.
  */
+/**
+ * Run yt-dlp with the given args, buffering all output lines.
+ * On failure, throws an Error whose message includes the full stderr/stdout
+ * so Vercel logs show the real YouTube error rather than a truncated summary.
+ * Cookie content is redacted from logs.
+ */
+function execWithFullLogs(ytDlp: YTDlpWrap, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const lines: string[] = [];
+
+    // Sanitise args for logging: redact the value after --cookies.
+    const safeArgs = args.map((a, i) =>
+      args[i - 1] === "--cookies" ? "<cookies-file>" :
+      args[i - 1] === "--proxy"   ? "<proxy>"        : a
+    );
+    console.log(`[yt-dlp] exec: yt-dlp ${safeArgs.join(" ")}`);
+
+    const proc = ytDlp.exec([...args, "--verbose"]);
+
+    proc.on("ytDlpEvent", (_type: string, data: string) => {
+      lines.push(data);
+    });
+
+    proc.on("error", (err: Error) => {
+      const output = lines.join("\n");
+      console.error(`[yt-dlp] FULL OUTPUT:\n${output}`);
+      const combined = new Error(`${err.message}\n--- yt-dlp output ---\n${output}`);
+      reject(combined);
+    });
+
+    proc.on("close", () => resolve());
+  });
+}
+
 export async function downloadWithYtDlp(
   videoUrl: string,
   outputPath: string,
@@ -242,25 +276,34 @@ export async function downloadWithYtDlp(
   const ytDlp = new YTDlpWrap(binaryPath);
   const proxy = process.env.YTDLP_PROXY;
 
+  // Upfront diagnostics — visible in Vercel function logs.
+  console.log(
+    `[yt-dlp] starting download url=${normalisedUrl} ` +
+    `cookies=${cookiesPath ? `yes (${cookiesContent?.length ?? 0} chars)` : "NO"} ` +
+    `proxy=${proxy ? "yes" : "NO"} ` +
+    `ffmpeg=${FFMPEG_PATH ?? "NOT FOUND"}`
+  );
+
   let lastError: Error | null = null;
 
   for (let i = 0; i < PLAYER_CLIENTS.length; i++) {
     const client: PlayerClient = PLAYER_CLIENTS[i];
-    const clientLabel = client ?? "default(ios+mweb)";
+    const clientLabel = client ?? "default(auto)";
 
     const args = buildBaseArgs(normalisedUrl, outputPath, cookiesPath, proxy);
     args.push("--extractor-args", buildExtractorArgs(client));
 
     try {
-      await ytDlp.execPromise(args);
-      return; // success — stop retrying
+      await execWithFullLogs(ytDlp, args);
+      console.log(`[yt-dlp] success on attempt ${i + 1} (client=${clientLabel})`);
+      return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (isPermanentError(msg)) {
         throw new Error(`YouTube video unavailable: ${msg}`);
       }
       lastError = err instanceof Error ? err : new Error(msg);
-      console.warn(`[yt-dlp] attempt ${i + 1} failed (client=${clientLabel}): ${msg}`);
+      console.warn(`[yt-dlp] attempt ${i + 1} failed (client=${clientLabel}): ${msg.slice(0, 300)}`);
       if (i < PLAYER_CLIENTS.length - 1) {
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
       }
@@ -269,20 +312,19 @@ export async function downloadWithYtDlp(
 
   // If a proxy was configured and all attempts failed, try once more without
   // it.  A broken/expired YTDLP_PROXY is a common cause of failure across all
-  // player clients — the proxy may intercept YouTube API responses and return
-  // something yt-dlp can't parse into a format list.
+  // player clients.
   if (proxy) {
     console.warn("[yt-dlp] all proxy attempts failed — retrying without proxy");
     const args = buildBaseArgs(normalisedUrl, outputPath, cookiesPath, undefined);
     args.push("--extractor-args", BASE_EXTRACTOR_ARGS);
     try {
-      await ytDlp.execPromise(args);
+      await execWithFullLogs(ytDlp, args);
       console.warn("[yt-dlp] success without proxy — YTDLP_PROXY may be broken or expired");
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       lastError = err instanceof Error ? err : new Error(msg);
-      console.warn(`[yt-dlp] no-proxy fallback also failed: ${msg}`);
+      console.warn(`[yt-dlp] no-proxy fallback also failed: ${msg.slice(0, 300)}`);
     }
   }
 
