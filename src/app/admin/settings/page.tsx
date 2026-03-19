@@ -13,6 +13,17 @@ function cookieAge(updatedAt: string | null): {
   return { label: `Updated ${Math.floor(days)}d ago — overdue`, color: "red" };
 }
 
+function potAge(updatedAt: string | null): {
+  label: string;
+  color: "green" | "amber" | "red";
+} {
+  if (!updatedAt) return { label: "Never set", color: "red" };
+  const hours = (Date.now() - new Date(updatedAt).getTime()) / 3_600_000;
+  if (hours < 6)  return { label: `Updated ${Math.floor(hours)}h ago — fresh`, color: "green" };
+  if (hours < 20) return { label: `Updated ${Math.floor(hours)}h ago — refresh soon`, color: "amber" };
+  return { label: `Updated ${Math.floor(hours)}h ago — likely expired`, color: "red" };
+}
+
 export default function AdminSettingsPage() {
   const [maintenanceMode, setMaintenanceMode] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
@@ -25,6 +36,13 @@ export default function AdminSettingsPage() {
   const [cookiesSaving, setCookiesSaving] = useState(false);
   const [cookiesMessage, setCookiesMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  // PO Token state
+  const [potSet, setPotSet] = useState(false);
+  const [potUpdatedAt, setPotUpdatedAt] = useState<string | null>(null);
+  const [potPaste, setPotPaste] = useState("");
+  const [potSaving, setPotSaving] = useState(false);
+  const [potMessage, setPotMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   useEffect(() => {
     fetch("/api/admin/settings")
       .then((r) => r.json())
@@ -32,6 +50,8 @@ export default function AdminSettingsPage() {
         setMaintenanceMode(settings["maintenance_mode"] === "true");
         setCookiesSet(!!settings["youtube_cookies"]);
         setCookiesUpdatedAt(settings["youtube_cookies_updated_at"] ?? null);
+        setPotSet(!!settings["ytdlp_po_token"]);
+        setPotUpdatedAt(settings["ytdlp_po_token_updated_at"] ?? null);
       })
       .catch(() => setMaintenanceMode(false));
   }, []);
@@ -93,7 +113,39 @@ export default function AdminSettingsPage() {
     }
   }
 
+  async function savePot() {
+    const trimmed = potPaste.trim();
+    if (!trimmed) return;
+    setPotSaving(true);
+    setPotMessage(null);
+    try {
+      const now = new Date().toISOString();
+      const [r1, r2] = await Promise.all([
+        fetch("/api/admin/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: "ytdlp_po_token", value: trimmed }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: "ytdlp_po_token_updated_at", value: now }),
+        }),
+      ]);
+      if (!r1.ok || !r2.ok) throw new Error("Failed");
+      setPotSet(true);
+      setPotUpdatedAt(now);
+      setPotPaste("");
+      setPotMessage({ type: "success", text: "PO Token saved. Downloads will use it immediately." });
+    } catch {
+      setPotMessage({ type: "error", text: "Failed to save PO Token. Try again." });
+    } finally {
+      setPotSaving(false);
+    }
+  }
+
   const age = cookieAge(cookiesUpdatedAt);
+  const pot = potAge(potUpdatedAt);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -242,6 +294,94 @@ export default function AdminSettingsPage() {
               cookiesMessage.type === "success" ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"
             }`}>
               {cookiesMessage.text}
+            </div>
+          )}
+        </div>
+
+        {/* PO Token Card */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+                <h2 className="text-lg font-semibold text-gray-900">YouTube PO Token</h2>
+              </div>
+              <p className="text-sm text-gray-500 max-w-lg">
+                A Proof-of-Origin Token lets yt-dlp download from Vercel&apos;s datacenter IPs where YouTube
+                would otherwise block format access. Required when cookies alone are insufficient.{" "}
+                <strong>Expires every ~24 hours</strong> — refresh daily if downloads fail.
+              </p>
+            </div>
+            <div className={`shrink-0 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold ${
+              pot.color === "green" ? "bg-green-100 text-green-700" :
+              pot.color === "amber" ? "bg-amber-100 text-amber-800" :
+              "bg-red-100 text-red-700"
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${
+                pot.color === "green" ? "bg-green-500" :
+                pot.color === "amber" ? "bg-amber-500" : "bg-red-500"
+              }`} />
+              {potSet ? pot.label : "Not set"}
+            </div>
+          </div>
+
+          <details className="group">
+            <summary className="cursor-pointer text-sm font-medium text-brand hover:text-brand-600 select-none list-none flex items-center gap-1.5">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-open:rotate-90">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+              How to get a PO Token
+            </summary>
+            <div className="mt-3 pl-5 space-y-2 text-sm text-gray-600">
+              <ol className="list-decimal list-inside space-y-2">
+                <li>Open <strong>youtube.com</strong> in Chrome, signed in with the same account as your cookies.</li>
+                <li>Open DevTools (F12) → <strong>Network</strong> tab.</li>
+                <li>Navigate to any YouTube video so network requests fire.</li>
+                <li>
+                  In the filter box type <code className="bg-gray-100 px-1 rounded text-xs">player</code> and look for a
+                  POST request to <code className="bg-gray-100 px-1 rounded text-xs">youtubei.googleapis.com/…/player</code>.
+                </li>
+                <li>Click that request → <strong>Payload</strong> tab → find <code className="bg-gray-100 px-1 rounded text-xs">serviceIntegrityDimensions</code> → copy the <code className="bg-gray-100 px-1 rounded text-xs">poToken</code> value.</li>
+                <li>Paste the token (a long base64 string) below and save.</li>
+              </ol>
+              <p className="text-xs text-gray-400 pt-1">
+                The token is stored in the database and only used server-side. It is tied to your browser session
+                and expires after ~24 hours, so re-paste it whenever downloads start failing again.
+              </p>
+            </div>
+          </details>
+
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Paste PO Token
+            </label>
+            <input
+              type="text"
+              value={potPaste}
+              onChange={(e) => setPotPaste(e.target.value)}
+              placeholder="AoJ… (long base64 string)"
+              className="w-full font-mono text-xs border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand placeholder-gray-300"
+            />
+            <p className="text-xs text-gray-400">
+              Existing token is replaced — the current value is never shown here for security.
+            </p>
+          </div>
+
+          <button
+            onClick={savePot}
+            disabled={potSaving || !potPaste.trim()}
+            className="px-5 py-2.5 bg-brand text-soft-black rounded-xl font-medium text-sm hover:bg-brand-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {potSaving ? "Saving…" : "Save PO Token"}
+          </button>
+
+          {potMessage && (
+            <div className={`px-4 py-3 rounded-xl text-sm ${
+              potMessage.type === "success" ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"
+            }`}>
+              {potMessage.text}
             </div>
           )}
         </div>
