@@ -22,7 +22,7 @@ const BINARY_PATH = join(tmpdir(), "yt-dlp");
 // Re-download the binary if the cached copy is older than this threshold.
 // YouTube regularly changes its internal API; an outdated binary produces
 // "Requested format is not available" for every format selector.
-const BINARY_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+const BINARY_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 // Cookies are written here whenever the content changes.
 const COOKIES_PATH = join(tmpdir(), "yt-dlp-cookies.txt");
@@ -56,13 +56,11 @@ async function downloadBinary(): Promise<string> {
  * so we never silently use an outdated binary.
  */
 async function getBinary(): Promise<string> {
-  // If we have a cached ready-promise, verify the binary on disk is still
-  // fresh enough.  If stale, delete it so downloadBinary() fetches the latest.
   if (_binaryReady) {
     try {
       const s = await stat(BINARY_PATH);
       if (Date.now() - s.mtimeMs > BINARY_MAX_AGE_MS) {
-        console.log("[yt-dlp] cached binary is >24 h old — fetching latest release");
+        console.log("[yt-dlp] cached binary is >6 h old — fetching latest release");
         await unlink(BINARY_PATH).catch(() => {});
         _binaryReady = null;
       }
@@ -128,16 +126,39 @@ function isPermanentError(message: string): boolean {
   ].some((s) => message.toLowerCase().includes(s.toLowerCase()));
 }
 
-// Player clients tried in order.
+// Player clients tried in order — tuned for datacenter IPs (Vercel/AWS Lambda).
 //
-// null (first) = omit --extractor-args entirely so yt-dlp uses its own
-// built-in client selection.  Modern yt-dlp (2024 +) auto-negotiates PO
-// (Proof-of-Origin) tokens through this path; explicitly naming a client
-// bypasses that logic and can cause "Requested format is not available" on
-// videos where YouTube requires a valid PO token.
-const PLAYER_CLIENTS = [null, "tv_embedded,web", "ios", "android"] as const;
+// Client landscape as of early 2026:
+//
+//   REMOVED in yt-dlp 2026.01.31: tv_embedded, web_embedded, ios_downgraded.
+//   SABR-only (no direct download URLs) since Oct 2025: web, web_safari, mweb,
+//     web_creator — these clients no longer return usable format URLs from
+//     datacenter IPs; switching to them makes things worse, not better.
+//
+//   android_vr  — best for datacenter IPs: no PO token required, still
+//                 returns direct format URLs.  yt-dlp's own default when no
+//                 JS runtime is present.  Occasionally erratic (March 2026)
+//                 but still the strongest option.
+//   tv_downgraded — second-best; works well with cookies for logged-in
+//                   accounts, tolerates datacenter IPs better than web clients.
+//   null (auto)  — yt-dlp picks the best available client for the environment.
+//                  Useful as a first-pass attempt.
+//   ios          — partial; fewer format restrictions than web clients.
+//   mweb         — last resort only; mostly SABR-only now.
+const PLAYER_CLIENTS = ["android_vr", "tv_downgraded", null, "ios", "mweb"] as const;
 type PlayerClient = (typeof PLAYER_CLIENTS)[number];
 const RETRY_DELAY_MS = 2_000;
+
+// formats=missing_pot: instructs yt-dlp to expose format entries even when
+// they are missing a Proof-of-Origin (PO) token.  Primarily relevant for
+// the mweb client; has little effect on android_vr/tv_downgraded which do
+// not require PO tokens.  Kept as a global flag as it never causes harm.
+const BASE_EXTRACTOR_ARGS = "youtube:formats=missing_pot";
+
+function buildExtractorArgs(client: PlayerClient): string {
+  if (client === null) return BASE_EXTRACTOR_ARGS;
+  return `youtube:player_client=${client};formats=missing_pot`;
+}
 
 /**
  * Normalise a YouTube URL so yt-dlp receives a canonical watch URL.
@@ -154,14 +175,93 @@ function normaliseYouTubeUrl(url: string): string {
 }
 
 /**
+ * Build the base yt-dlp argument list shared across all attempts.
+ * The caller adds --extractor-args and optionally --proxy on top.
+ */
+function buildBaseArgs(
+  url: string,
+  outputPath: string,
+  cookiesPath: string | null,
+  proxy: string | undefined
+): string[] {
+  const args: string[] = [
+    url,
+    // Format selector — ordered from best quality to guaranteed fallback.
+    //
+    // When ffmpeg is available (--ffmpeg-location below) yt-dlp can merge
+    // separate DASH video+audio streams, so the first two selectors produce
+    // high-quality output.  When ffmpeg is unavailable or broken on the
+    // current Lambda, the `+` merge selectors are skipped and yt-dlp falls
+    // through to `best` (best pre-merged stream, usually 720 p mp4).
+    //
+    // The final `bestvideo/bestaudio` entries are absolute last resorts so
+    // that yt-dlp always downloads *something*.  The resulting file may lack
+    // an audio or video track; ffmpeg compositing will still run and produce
+    // a partial result rather than failing the entire job with "Requested
+    // format is not available".
+    "-f", "bestvideo[height<=1920]+bestaudio/bestvideo+bestaudio/best/bestvideo/bestaudio",
+    "--merge-output-format", "mp4",
+    "--no-playlist",
+    "--no-warnings",
+    "-o", outputPath,
+  ];
+  if (cookiesPath) args.push("--cookies", cookiesPath);
+  if (proxy)       args.push("--proxy", proxy);
+  if (FFMPEG_PATH) args.push("--ffmpeg-location", FFMPEG_PATH);
+  return args;
+}
+
+/**
  * Download a YouTube video to `outputPath` using yt-dlp.
  *
- * Retries up to four times, rotating through player clients on each attempt.
+ * Retries up to three times, rotating through player clients on each attempt.
  * Permanent errors (private / removed videos) are surfaced immediately.
+ *
+ * Root cause of "Requested format is not available" on Vercel/AWS Lambda:
+ *   YouTube blocks datacenter IPs at the network level.  Even with valid
+ *   cookies the IP reputation determines whether format URLs are served.
+ *   The formats=missing_pot extractor arg forces yt-dlp to expose mweb
+ *   formats that would otherwise be silently dropped due to a missing
+ *   Proof-of-Origin token.  For a reliable fix, set YTDLP_PROXY to a
+ *   residential proxy endpoint.
  *
  * @param cookiesContent  Netscape-format cookie file content, sourced from
  *   the admin DB setting.  Falls back to YOUTUBE_COOKIES env var if omitted.
  */
+/**
+ * Run yt-dlp with the given args, buffering all output lines.
+ * On failure, throws an Error whose message includes the full stderr/stdout
+ * so Vercel logs show the real YouTube error rather than a truncated summary.
+ * Cookie content is redacted from logs.
+ */
+function execWithFullLogs(ytDlp: YTDlpWrap, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const lines: string[] = [];
+
+    // Sanitise args for logging: redact the value after --cookies.
+    const safeArgs = args.map((a, i) =>
+      args[i - 1] === "--cookies" ? "<cookies-file>" :
+      args[i - 1] === "--proxy"   ? "<proxy>"        : a
+    );
+    console.log(`[yt-dlp] exec: yt-dlp ${safeArgs.join(" ")}`);
+
+    const proc = ytDlp.exec([...args, "--verbose"]);
+
+    proc.on("ytDlpEvent", (_type: string, data: string) => {
+      lines.push(data);
+    });
+
+    proc.on("error", (err: Error) => {
+      const output = lines.join("\n");
+      console.error(`[yt-dlp] FULL OUTPUT:\n${output}`);
+      const combined = new Error(`${err.message}\n--- yt-dlp output ---\n${output}`);
+      reject(combined);
+    });
+
+    proc.on("close", () => resolve());
+  });
+}
+
 export async function downloadWithYtDlp(
   videoUrl: string,
   outputPath: string,
@@ -176,83 +276,55 @@ export async function downloadWithYtDlp(
   const ytDlp = new YTDlpWrap(binaryPath);
   const proxy = process.env.YTDLP_PROXY;
 
+  // Upfront diagnostics — visible in Vercel function logs.
+  console.log(
+    `[yt-dlp] starting download url=${normalisedUrl} ` +
+    `cookies=${cookiesPath ? `yes (${cookiesContent?.length ?? 0} chars)` : "NO"} ` +
+    `proxy=${proxy ? "yes" : "NO"} ` +
+    `ffmpeg=${FFMPEG_PATH ?? "NOT FOUND"}`
+  );
+
   let lastError: Error | null = null;
 
   for (let i = 0; i < PLAYER_CLIENTS.length; i++) {
     const client: PlayerClient = PLAYER_CLIENTS[i];
-    const args: string[] = [normalisedUrl];
+    const clientLabel = client ?? "default(auto)";
 
-    // null = use yt-dlp's default client (handles PO tokens automatically).
-    // Any other value = force that specific client.
-    if (client !== null) {
-      args.push("--extractor-args", `youtube:player_client=${client}`);
-    }
+    const args = buildBaseArgs(normalisedUrl, outputPath, cookiesPath, proxy);
+    args.push("--extractor-args", buildExtractorArgs(client));
 
-    args.push(
-      // Format selector — ordered from best quality to guaranteed fallback.
-      //
-      // When ffmpeg is available (--ffmpeg-location below) yt-dlp can merge
-      // separate DASH video+audio streams, so the first two selectors produce
-      // high-quality output.  When ffmpeg is unavailable or broken on the
-      // current Lambda, the `+` merge selectors are skipped and yt-dlp falls
-      // through to `best` (best pre-merged stream, usually 720 p mp4).
-      //
-      // The final `bestvideo/bestaudio` entries are absolute last resorts so
-      // that yt-dlp always downloads *something*.  The resulting file may lack
-      // an audio or video track; ffmpeg compositing will still run and produce
-      // a partial result rather than failing the entire job with "Requested
-      // format is not available".
-      "-f", "bestvideo[height<=1920]+bestaudio/bestvideo+bestaudio/best/bestvideo/bestaudio",
-      "--merge-output-format", "mp4",
-      "--no-playlist",
-      "--no-warnings",
-      "-o", outputPath,
-    );
-    if (cookiesPath) args.push("--cookies", cookiesPath);
-    if (proxy)       args.push("--proxy", proxy);
-    if (FFMPEG_PATH) args.push("--ffmpeg-location", FFMPEG_PATH);
-
-    const clientLabel = client ?? "default";
     try {
-      await ytDlp.execPromise(args);
-      return; // success — stop retrying
+      await execWithFullLogs(ytDlp, args);
+      console.log(`[yt-dlp] success on attempt ${i + 1} (client=${clientLabel})`);
+      return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (isPermanentError(msg)) {
         throw new Error(`YouTube video unavailable: ${msg}`);
       }
       lastError = err instanceof Error ? err : new Error(msg);
-      console.warn(`[yt-dlp] attempt ${i + 1} failed (client=${clientLabel}): ${msg}`);
+      console.warn(`[yt-dlp] attempt ${i + 1} failed (client=${clientLabel}): ${msg.slice(0, 300)}`);
       if (i < PLAYER_CLIENTS.length - 1) {
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
       }
     }
   }
 
-  // If a proxy was used and all attempts failed, try once more without it.
-  // A broken/expired YTDLP_PROXY is the most common cause of "Requested format
-  // is not available" across ALL player clients — the proxy intercepts YouTube
-  // API responses and returns something yt-dlp can't parse into a format list.
+  // If a proxy was configured and all attempts failed, try once more without
+  // it.  A broken/expired YTDLP_PROXY is a common cause of failure across all
+  // player clients.
   if (proxy) {
     console.warn("[yt-dlp] all proxy attempts failed — retrying without proxy");
-    const args: string[] = [
-      normalisedUrl,
-      "-f", "bestvideo[height<=1920]+bestaudio/bestvideo+bestaudio/best/bestvideo/bestaudio",
-      "--merge-output-format", "mp4",
-      "--no-playlist",
-      "--no-warnings",
-      "-o", outputPath,
-    ];
-    if (cookiesPath) args.push("--cookies", cookiesPath);
-    if (FFMPEG_PATH) args.push("--ffmpeg-location", FFMPEG_PATH);
+    const args = buildBaseArgs(normalisedUrl, outputPath, cookiesPath, undefined);
+    args.push("--extractor-args", BASE_EXTRACTOR_ARGS);
     try {
-      await ytDlp.execPromise(args);
+      await execWithFullLogs(ytDlp, args);
       console.warn("[yt-dlp] success without proxy — YTDLP_PROXY may be broken or expired");
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       lastError = err instanceof Error ? err : new Error(msg);
-      console.warn(`[yt-dlp] no-proxy fallback also failed: ${msg}`);
+      console.warn(`[yt-dlp] no-proxy fallback also failed: ${msg.slice(0, 300)}`);
     }
   }
 
